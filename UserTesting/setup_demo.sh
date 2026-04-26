@@ -24,9 +24,16 @@ git config user.email "demo@example.com"
 echo "" > main.py
 git add -A && git commit -m "C0: init" --date "2026-01-01T00:00:00Z"
 
-# C1: Add 50 lines to main.py (40 AI + 10 human)
-for i in $(seq 1 50); do echo "line $i"; done > main.py
-git add -A && git commit -m "C1: add main.py" --date "2026-01-15T00:00:00Z"
+# C1: Add content with multi-hunk across main.py + utils.py
+for i in $(seq 1 30); do echo "line $i"; done > main.py
+echo "# utils" > utils.py
+echo "def helper_a(): return 1" >> utils.py
+echo "" >> utils.py
+echo "def helper_b(): return 2" >> utils.py
+echo "" >> utils.py
+echo "# end utils" >> utils.py
+git add main.py utils.py
+git commit -m "C1: add main.py + utils.py (multi-file, multi-hunk)" --date "2026-01-15T00:00:00Z"
 REV_C1=$(git rev-parse HEAD)
 
 # C2: Rename a file
@@ -57,13 +64,23 @@ open('main.py', 'w').writelines(lines)
 "
 git add -A && git commit -m "C7: human edit line 5" --date "2026-03-10T00:00:00Z"
 
-# C8: Restore line
+# C8: Multi-hunk modification — change two sections of main.py
+python3 -c "
+lines = open('main.py').readlines()
+lines[4] = 'line 5 - HUMAN EDIT\n'
+lines[14] = 'line 15 - AI REWRITE\n'
+open('main.py', 'w').writelines(lines)
+"
+git add -A && git commit -m "C8: multi-hunk edit (lines 5 + 15)" --date "2026-03-15T00:00:00Z"
+
+# C9: Restore both lines
 python3 -c "
 lines = open('main.py').readlines()
 lines[4] = 'line 5\n'
+lines[14] = 'line 15\n'
 open('main.py', 'w').writelines(lines)
 "
-git add -A && git commit -m "C8: restore line 5" --date "2026-03-15T00:00:00Z"
+git add -A && git commit -m "C9: revert edits" --date "2026-03-20T00:00:00Z"
 
 # C9: Delete a file
 git rm helpers.py && git commit -m "C9: delete helpers.py" --date "2026-04-01T00:00:00Z"
@@ -184,13 +201,21 @@ echo "genCodeDesc v26.03 generated: $GENCODE_V2603 ($(ls $GENCODE_V2603 | wc -l 
 
 python3 -c "
 import subprocess, os
+
 repo = '$REPO_DIR'
 patch_dir = '$PATCH_DIR'
-for rev in subprocess.run(['git', 'log', '--reverse', '--format=%H'], cwd=repo,
-                           capture_output=True, text=True).stdout.strip().split('\n'):
+
+commits = subprocess.run(
+    ['git', 'log', '--topo-order', '--reverse', '--first-parent', '--format=%H'],
+    cwd=repo, capture_output=True, text=True
+).stdout.strip().split('\n')
+
+for rev in commits:
     if not rev: continue
-    diff = subprocess.run(['git', 'show', '--format=', rev], cwd=repo,
-                          capture_output=True, text=True).stdout
+    diff = subprocess.run(
+        ['git', 'format-patch', '-1', '--stdout', '--unified=3', '--first-parent', rev],
+        cwd=repo, capture_output=True, text=True
+    ).stdout
     if diff.strip():
         with open(os.path.join(patch_dir, f'{rev}.patch'), 'w') as f:
             f.write(diff)
