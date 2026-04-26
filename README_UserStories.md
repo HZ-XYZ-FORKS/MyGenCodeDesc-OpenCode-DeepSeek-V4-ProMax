@@ -781,7 +781,111 @@ Scenario: [Testability] Unit tests can set log level programmatically
 | US-008 | Scale and Performance | 4 | Performance, Edge, Robust |
 | US-009 | Algorithm-Specific Behavior | 9 | Typical, Edge, Fault |
 | US-010 | Diagnostics and Logging | 7 | Typical, Edge, Observability, Testability |
-| **Total** | | **59 AC** | |
+| US-011 | Deployment Topology (12 cells) | 5 | Typical, Edge |
+| **Total** | | **64 AC** | |
+
+---
+
+## US-011: Deployment Topology — 12 VCS × Access × Algorithm Cells
+
+AS A codebase maintainer,
+I WANT `aggregateGenCodeDesc` to run correctly in every deployment scenario defined in the UserGuide,
+SO THAT the tool works across local/remote repos, Git/SVN VCS, and all three algorithms.
+
+### Context
+
+The [UserGuide](README_UserGuide.md) §4 defines 12 deployment cells on axes:
+**VCS** = `git` | `svn` · **Access** = `local` | `remote` · **Algorithm** = `A` | `B` | `C`.
+
+Each cell represents a distinct runtime topology. Cells 3, 6, 9, 12 (AlgC) are VCS-free and share the same code path.
+The remaining 8 cells require distinct VCS-specific integration.
+
+### Coverage Matrix
+
+| # | Cell | Status | Priority |
+|---|------|:---:|----------|
+| 1 | git · local · A | ✅ | — |
+| 2 | git · local · B | ✅ | — |
+| 3 | git · local · C | ✅ | — |
+| 4 | git · remote · A | ❌ | P0 |
+| 5 | git · remote · B | ❌ | P0 |
+| 6 | git · remote · C | ✅ | — |
+| 7 | svn · local · A | ✅ | — |
+| 8 | svn · local · B | ❌ | P0 |
+| 9 | svn · local · C | ✅ | — |
+| 10 | svn · remote · A | ❌ | P1 |
+| 11 | svn · remote · B | ❌ | P1 |
+| 12 | svn · remote · C | ✅ | — |
+
+### AC-011-1: [Typical] git · remote · A — auto-clone remote then blame
+
+```gherkin
+Scenario: [Typical] Remote Git repo with AlgA
+  GIVEN a remote Git repository URL (https:// or git@)
+  AND --algorithm A --repoPath is not provided
+  WHEN aggregateGenCodeDesc runs
+  THEN the tool auto-clones the remote to a temp directory
+  AND runs git blame on the cloned working copy
+  AND computes metrics correctly
+```
+
+### AC-011-2: [Typical] git · remote · B — patches + VCS ordering, no live repo
+
+```gherkin
+Scenario: [Typical] Remote Git repo with AlgB and commitPatchDir
+  GIVEN --commitPatchDir with per-revision .patch files
+  AND --algorithm B
+  AND no live repository access (--repoPath not needed)
+  WHEN aggregateGenCodeDesc runs
+  THEN commits are ordered via git log --topo-order
+  AND patches are replayed in correct topological sequence
+  AND the final line-to-origin mapping matches the live state at endTime
+```
+
+### AC-011-3: [Typical] svn · local · B — SVN diff replay with ascending revision order
+
+```gherkin
+Scenario: [Typical] Local SVN repo with AlgB
+  GIVEN an SVN working copy at --repoPath
+  AND --commitPatchDir with per-revision .patch files named by SVN revision number
+  AND --algorithm B
+  WHEN aggregateGenCodeDesc runs
+  THEN patches are ordered by ascending SVN revision number
+  AND every patch is replayed to build the surviving-line set
+```
+
+### AC-011-4: [Edge] svn · remote · A — svn blame via remote URL
+
+```gherkin
+Scenario: [Edge] Remote SVN with AlgA
+  GIVEN an SVN repository URL (svn:// or https://)
+  AND --algorithm A
+  WHEN aggregateGenCodeDesc runs svn blame
+  THEN the tool runs svn blame against the remote URL
+  AND the fork documents known SVN merge blame imprecision
+```
+
+### AC-011-5: [Edge] svn · remote · B — offline SVN patches, no VCS access
+
+```gherkin
+Scenario: [Edge] Remote SVN with AlgB offline patches
+  GIVEN --commitPatchDir with pre-exported svn diff patches
+  AND --algorithm B
+  AND no SVN server access at runtime
+  WHEN aggregateGenCodeDesc runs
+  THEN patches are processed by ascending revision number
+  AND metrics are computed correctly
+```
+
+### Updated AC Count
+
+| US | Title | AC Count |
+|----|-------|----------|
+| US-001 ~ US-010 | Previous | 59 |
+| US-011 | Deployment Topology (12 cells) | 5 |
+| **Total** | | **64 AC** |
+
+> Cells marked P0 must pass before release. Cells marked P1 are edge scenarios with known SVN limitations (remote SVN blame imprecision).
 
 ---
 
@@ -792,7 +896,7 @@ Scenario: [Testability] Unit tests can set log level programmatically
 3. **RED** — write a failing test from the GIVEN/WHEN/THEN scenario.
 4. **GREEN** — implement minimal code to pass.
 5. **REFACTOR** — clean up.
-6. When all 59 ACs pass → your implementation is correct per the BASE specification.
+6. When all 64 ACs pass → your implementation is correct per the BASE specification.
 
 > **Not every AC applies to every fork.** Git-only conditions (rebase, amend, shallow clone)
 > can be skipped by SVN forks. AlgC-specific ACs can be skipped by AlgA-only forks.
