@@ -41,6 +41,40 @@ def get_git_commit_order(
     return commits
 
 
+def get_svn_commit_order(
+    repo_url: str,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+) -> List[str]:
+    cmd = ["svn", "log", "--xml", "-q", repo_url]
+    if start_time:
+        cmd.extend(["-r", f"{{{start_time}}}:HEAD"])
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except FileNotFoundError:
+        raise CommitOrderError("SVN executable not found. Ensure svn is installed and on PATH.")
+
+    if result.returncode != 0:
+        raise CommitOrderError(f"svn log failed: {result.stderr.strip()}")
+
+    revs = []
+    for line in result.stdout.split("\n"):
+        if 'revision="' in line:
+            rev = line.split('revision="')[1].split('"')[0]
+            revs.append(rev)
+
+    if start_time and end_time:
+        pass
+
+    revs.reverse()
+    return revs
+
+
 def load_ordered_patches(
     commit_patch_dir: str,
     ordered_commits: List[str],

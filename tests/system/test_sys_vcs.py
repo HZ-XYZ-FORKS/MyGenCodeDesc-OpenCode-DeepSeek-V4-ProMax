@@ -412,3 +412,143 @@ def test_alg_c_empty_window(prod_repo):
     assert m["weighted"]["value"] == 0.0
     assert m["fullyAI"]["value"] == 0.0
     assert m["mostlyAI"]["value"] == 0.0
+
+
+def test_git_remote_alg_a_auto_clone(prod_repo, tmp_path):
+    """AC-011-1: Auto-clone remote git repo when --repoPath not given, then blame."""
+    from aggregateGenCodeDesc.cli import main, EXIT_SUCCESS
+    import json
+
+    rd = prod_repo["repo_dir"]
+    gd = prod_repo["gencode_dir"]
+    out_dir = tmp_path / "out_remote_a"
+
+    r = main([
+        "--repoUrl", f"file://{rd}",
+        "--repoBranch", prod_repo["branch"],
+        "--startTime", "2026-01-01T00:00:00Z",
+        "--endTime", "2026-04-15T00:00:00Z",
+        "--genCodeDescDir", str(gd),
+        "--outputDir", str(out_dir),
+        "--threshold", "60",
+        "--algorithm", "A",
+        "--scope", "A",
+    ])
+    assert r == EXIT_SUCCESS
+    assert (out_dir / "genCodeDescV26.03.json").exists()
+    data = json.loads((out_dir / "genCodeDescV26.03.json").read_text())
+    assert data["AGGREGATE"]["parameters"]["algorithm"] == "A"
+
+
+def test_git_remote_alg_b_offline_patches(prod_repo, tmp_path):
+    """AC-011-2: AlgB with commitPatchDir — no live repo needed after ordering."""
+    from aggregateGenCodeDesc.cli import main, EXIT_SUCCESS
+    from aggregateGenCodeDesc.vcs_ordering import get_git_commit_order
+    import subprocess, json
+
+    rd = prod_repo["repo_dir"]
+    gd = prod_repo["gencode_dir"]
+    patch_dir = tmp_path / "patches_b"
+    patch_dir.mkdir()
+    out_dir = tmp_path / "out_b"
+
+    commits = get_git_commit_order(str(rd), prod_repo["branch"])
+    for rev in commits:
+        diff = subprocess.run(
+            ["git", "show", "--format=", rev], cwd=str(rd),
+            capture_output=True, text=True,
+        ).stdout
+        (patch_dir / f"{rev}.patch").write_text(diff)
+
+    r = main([
+        "--repoUrl", f"file://{rd}",
+        "--repoBranch", prod_repo["branch"],
+        "--startTime", "2026-01-01T00:00:00Z",
+        "--endTime", "2026-04-15T00:00:00Z",
+        "--genCodeDescDir", str(gd),
+        "--outputDir", str(out_dir),
+        "--threshold", "60",
+        "--algorithm", "B",
+        "--scope", "A",
+        "--repoPath", str(rd),
+        "--commitPatchDir", str(patch_dir),
+    ])
+    assert r == EXIT_SUCCESS
+    assert (out_dir / "genCodeDescV26.03.json").exists()
+
+
+def test_svn_local_alg_b_diff_replay(prod_repo, tmp_path):
+    """AC-011-3: SVN AlgB — diff patches replayed in ascending revision order."""
+    from aggregateGenCodeDesc.vcs_ordering import get_svn_commit_order
+    import subprocess
+
+    svn_repo_dir = tmp_path / "svn_repo_b"
+    svn_co = tmp_path / "svn_co_b"
+    svn_repo_dir.mkdir()
+    subprocess.run(["svnadmin", "create", str(svn_repo_dir)], capture_output=True, text=True, check=True)
+    repo_uri = f"file://{svn_repo_dir}"
+
+    subprocess.run(["svn", "checkout", repo_uri, str(svn_co)], capture_output=True, text=True, check=True)
+    (svn_co / "main.py").write_text("line1\nline2\n")
+    subprocess.run(["svn", "add", "main.py"], cwd=str(svn_co), capture_output=True, text=True, check=True)
+    subprocess.run(["svn", "commit", "-m", "r1"], cwd=str(svn_co), capture_output=True, text=True, check=True)
+
+    (svn_co / "main.py").write_text("line1\nmodified\nline2\n")
+    subprocess.run(["svn", "commit", "-m", "r2"], cwd=str(svn_co), capture_output=True, text=True, check=True)
+
+    revs = get_svn_commit_order(repo_uri)
+    assert len(revs) >= 2
+    assert int(revs[0]) < int(revs[1]), f"SVN revisions should be ascending: {revs}"
+
+
+def test_svn_remote_alg_a_blame_url(prod_repo, tmp_path):
+    """AC-011-4: svn blame via file:// URL simulating remote access."""
+    from aggregateGenCodeDesc.blame_runner import run_svn_blame
+    import subprocess
+
+    svn_repo_dir = tmp_path / "svn_remote_a"
+    svn_co = tmp_path / "svn_co_a"
+    svn_repo_dir.mkdir()
+    subprocess.run(["svnadmin", "create", str(svn_repo_dir)], capture_output=True, text=True, check=True)
+    repo_uri = f"file://{svn_repo_dir}"
+
+    subprocess.run(["svn", "checkout", repo_uri, str(svn_co)], capture_output=True, text=True, check=True)
+    (svn_co / "remote.py").write_text("r1 line\n")
+    subprocess.run(["svn", "add", "remote.py"], cwd=str(svn_co), capture_output=True, text=True, check=True)
+    subprocess.run(["svn", "commit", "-m", "remote commit"], cwd=str(svn_co), capture_output=True, text=True, check=True)
+
+    lines = run_svn_blame(repo_uri, "remote.py")
+    assert len(lines) == 1
+    assert int(lines[0].origin_revision) >= 1
+
+
+def test_svn_remote_alg_b_offline_patches(prod_repo, tmp_path):
+    """AC-011-5: SVN AlgB offline patches — processed by ascending revision, no server."""
+    from aggregateGenCodeDesc.vcs_ordering import get_svn_commit_order, load_ordered_patches
+    import subprocess
+
+    svn_repo_dir = tmp_path / "svn_remote_b"
+    svn_co = tmp_path / "svn_co_b"
+    svn_repo_dir.mkdir()
+    subprocess.run(["svnadmin", "create", str(svn_repo_dir)], capture_output=True, text=True, check=True)
+    repo_uri = f"file://{svn_repo_dir}"
+
+    subprocess.run(["svn", "checkout", repo_uri, str(svn_co)], capture_output=True, text=True, check=True)
+    (svn_co / "f.py").write_text("v1\n")
+    subprocess.run(["svn", "add", "f.py"], cwd=str(svn_co), capture_output=True, text=True, check=True)
+    subprocess.run(["svn", "commit", "-m", "r1"], cwd=str(svn_co), capture_output=True, text=True, check=True)
+
+    revs = get_svn_commit_order(repo_uri)
+    assert len(revs) >= 1
+
+    patch_dir = tmp_path / "svn_offline_patches"
+    patch_dir.mkdir()
+    for rev in revs:
+        diff = subprocess.run(
+            ["svn", "diff", "-c", rev, repo_uri],
+            capture_output=True, text=True,
+        ).stdout
+        (patch_dir / f"{rev}.patch").write_text(diff)
+
+    patches = load_ordered_patches(str(patch_dir), revs)
+    assert len(patches) == len(revs)
