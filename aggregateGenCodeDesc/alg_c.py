@@ -12,14 +12,14 @@ from aggregateGenCodeDesc.models import (
 from aggregateGenCodeDesc.metrics import AllMetrics, compute_all_metrics
 
 
-@dataclass
+@dataclass(slots=True)
 class SurvivingLine:
-    blame_revision_id: str
-    original_file_path: str
-    original_line: int
-    gen_ratio: int
-    gen_method: str
-    blame_timestamp: str
+    blame_revision_id: str = ""
+    original_file_path: str = ""
+    original_line: int = 0
+    gen_ratio: int = 0
+    gen_method: str = ""
+    blame_timestamp: str = ""
     file_name: str = ""
     line_location: int = 0
 
@@ -31,12 +31,12 @@ class AlgCResult:
     warnings: List[str]
 
 
-def _make_blame_key(rev_id: str, file_path: str, line: int) -> str:
-    return f"{rev_id}::{file_path}::{line}"
+def _make_blame_key(rev_id: str, file_path: str, line: int) -> tuple:
+    return (rev_id, file_path, line)
 
 
-def _make_position_key(file_name: str, line_location: int) -> str:
-    return f"{file_name}::{line_location}"
+def _make_position_key(file_name: str, line_location: int) -> tuple:
+    return (file_name, line_location)
 
 
 def _expand_line_range(from_: int, to_: int) -> List[int]:
@@ -216,7 +216,14 @@ def stream_accumulate_surviving_set(
     end_time: str,
     return_warnings: bool = False,
 ) -> List[SurvivingLine] | Tuple[List[SurvivingLine], List[str]]:
-    import json
+    import json as _json
+    import json as _json_module
+    try:
+        import orjson as _fast_json
+        _use_fast = True
+    except ImportError:
+        _use_fast = False
+
     from pathlib import Path
 
     warnings: List[str] = []
@@ -225,11 +232,15 @@ def stream_accumulate_surviving_set(
     file_info: List[Tuple[str, Path]] = []
     for jf in sorted(path.glob("*.json")):
         try:
-            with open(jf, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            if _use_fast:
+                with open(jf, "rb") as f:
+                    data = _fast_json.loads(f.read())
+            else:
+                with open(jf, "r", encoding="utf-8") as f:
+                    data = _json.load(f)
             ts = data.get("REPOSITORY", {}).get("revisionTimestamp", "")
             file_info.append((ts, jf))
-        except (json.JSONDecodeError, KeyError, OSError) as e:
+        except (_json.JSONDecodeError, KeyError, OSError) as e:
             warnings.append(f"Skipping unreadable file {jf.name}: {e}")
 
     file_info.sort(key=lambda x: x[0])
@@ -241,9 +252,13 @@ def stream_accumulate_surviving_set(
         if ts > end_time:
             continue
         try:
-            with open(jf, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
+            if _use_fast:
+                with open(jf, "rb") as f:
+                    data = _fast_json.loads(f.read())
+            else:
+                with open(jf, "r", encoding="utf-8") as f:
+                    data = _json.load(f)
+        except (_json.JSONDecodeError, OSError) as e:
             warnings.append(f"I/O error reading {jf.name}: {e}")
             continue
 

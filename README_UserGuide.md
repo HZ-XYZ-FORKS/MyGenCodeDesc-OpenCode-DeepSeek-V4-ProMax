@@ -67,8 +67,7 @@ All other CLI arguments are optional, or are used only when the selected mode, a
 | `--algorithm` | As needed | Line-origin discovery strategy: `A`, `B`, or `C` (see [README_AlgABC.md](README_AlgABC.md)). |
 | `--scope` | As needed | File/path filter: `A`, `B`, `C`, or `D` (see [README_Protocol.md](README_Protocol.md) — Scope Definitions). |
 | `--outputDir` | As needed | Directory where output artifacts are written (created if missing). See §3. |
-| `--repoPath` | none | **Alg A only.** Path to a local working copy of the repository. Needed for Alg A git/svn. If not given and `--repoUrl` is remote, the fork may auto-clone. |
-| `--endRev` | `HEAD` | **Alg A only.** Revision to blame at. |
+| `--repoPath` | none | **Alg A only.** Path to a local working copy of the repository. If not given and `--repoUrl` is remote, the tool auto-clones. |
 | `--commitPatchDir` | none | **Alg B only.** Directory holding per-revision unified diff files for offline replay. See §2.4. |
 | `--blameWhitespace` | `respect` | **Alg A, Git only.** `respect` or `ignore` (cf. `git blame -w`). See AC-004-3. |
 | `--renameDetection` | `basic` | **Alg A/B, Git only.** `off` / `basic` (`-M`) / `aggressive` (`-M -C -C`). |
@@ -412,4 +411,4 @@ aggregateGenCodeDesc \
     - Which of the 12 cells are supported (all 12 is the target; AlgC-only forks may skip cells 1–2, 7–8).
     - Known limitations per cell (e.g. "Alg B is not yet implemented").
     - Policy defaults for `--onMissing`, `--onDuplicate`, `--onClockSkew`.
-4. All 59 acceptance criteria in [README_UserStories.md](README_UserStories.md) are test targets.
+4. All 64 acceptance criteria in [README_UserStories.md](README_UserStories.md) are test targets.

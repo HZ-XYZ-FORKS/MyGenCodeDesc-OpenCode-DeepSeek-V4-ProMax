@@ -807,14 +807,14 @@ The remaining 8 cells require distinct VCS-specific integration.
 | 1 | git · local · A | ✅ | — |
 | 2 | git · local · B | ✅ | — |
 | 3 | git · local · C | ✅ | — |
-| 4 | git · remote · A | ❌ | P0 |
-| 5 | git · remote · B | ❌ | P0 |
+| 4 | git · remote · A | ✅ | — |
+| 5 | git · remote · B | ✅ | — |
 | 6 | git · remote · C | ✅ | — |
 | 7 | svn · local · A | ✅ | — |
-| 8 | svn · local · B | ❌ | P0 |
+| 8 | svn · local · B | ✅ | — |
 | 9 | svn · local · C | ✅ | — |
-| 10 | svn · remote · A | ❌ | P1 |
-| 11 | svn · remote · B | ❌ | P1 |
+| 10 | svn · remote · A | ✅ | — |
+| 11 | svn · remote · B | ✅ | — |
 | 12 | svn · remote · C | ✅ | — |
 
 ### AC-011-1: [Typical] git · remote · A — auto-clone remote then blame
