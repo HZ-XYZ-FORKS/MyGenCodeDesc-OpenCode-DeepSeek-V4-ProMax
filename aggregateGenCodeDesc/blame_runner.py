@@ -9,6 +9,10 @@ class GitBlameError(Exception):
     pass
 
 
+class SvnBlameError(Exception):
+    pass
+
+
 def iso_from_unix(unix_ts: int) -> str:
     return datetime.fromtimestamp(unix_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -38,8 +42,7 @@ def parse_blame_porcelain(output: str) -> List[BlameLine]:
                     line_number=current_final_line,
                     origin_timestamp=current_timestamp,
                 ))
-            current_revision = ""
-            current_filename = ""
+                current_final_line += 1
             continue
 
         if not line[0].isspace() and len(line) >= 7:
@@ -129,3 +132,58 @@ def run_git_blame_on_files(
         except GitBlameError:
             pass
     return all_lines
+
+
+def parse_svn_blame(output: str) -> List[BlameLine]:
+    if not output.strip():
+        return []
+
+    lines = output.split("\n")
+    result = []
+    for line in lines:
+        if not line.strip():
+            continue
+        stripped = line.rstrip("\n")
+        if len(stripped) < 8:
+            continue
+        try:
+            rev_part = stripped[:8].strip()
+            revision = str(int(rev_part))
+            rest = stripped[8:]
+            result.append(BlameLine(
+                blame=f"{revision}",
+                origin_revision=revision,
+                file_path="",
+                line_number=len(result) + 1,
+                origin_timestamp="",
+            ))
+        except (ValueError, IndexError):
+            continue
+    return result
+
+
+def run_svn_blame(
+    repo_url: str,
+    file_path: str,
+) -> List[BlameLine]:
+    cmd = ["svn", "blame", "--non-interactive", f"{repo_url}/{file_path}"]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except FileNotFoundError:
+        raise SvnBlameError("SVN executable not found. Ensure svn is installed and on PATH.")
+
+    if result.returncode != 0:
+        raise SvnBlameError(
+            f"svn blame failed (exit {result.returncode}) for {file_path}: {result.stderr.strip()}"
+        )
+
+    lines = parse_svn_blame(result.stdout)
+    for l in lines:
+        l.file_path = file_path
+    return lines

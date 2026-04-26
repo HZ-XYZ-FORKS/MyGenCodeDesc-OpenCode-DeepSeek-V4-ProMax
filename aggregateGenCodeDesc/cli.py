@@ -12,9 +12,9 @@ from aggregateGenCodeDesc.output import (
     PATCH_OUTPUT_FILENAME,
     build_aggregate_output,
 )
-from aggregateGenCodeDesc.metrics import AllMetrics, MetricResult
+from aggregateGenCodeDesc.metrics import AllMetrics, MetricResult, compute_all_metrics
 from aggregateGenCodeDesc.alg_a import compute_alg_a_metrics, build_line_to_genratio_map
-from aggregateGenCodeDesc.alg_c import compute_alg_c_metrics
+from aggregateGenCodeDesc.alg_c import compute_alg_c_metrics, stream_accumulate_surviving_set
 from aggregateGenCodeDesc.blame_runner import run_git_blame_on_files, GitBlameError
 from aggregateGenCodeDesc.models import GenCodeDescV2603, GenCodeDescV2604, ValidationError
 
@@ -99,16 +99,17 @@ def main(argv: Optional[list] = None) -> int:
 
     try:
         if args.algorithm == "C":
-            v2604_records = [r for r in records if isinstance(r, GenCodeDescV2604)]
-            result = compute_alg_c_metrics(
-                v2604_records,
-                start_time=args.startTime,
+            surviving, warnings = stream_accumulate_surviving_set(
+                str(Path(args.genCodeDescDir)),
                 end_time=args.endTime,
-                threshold=args.threshold,
+                return_warnings=True,
             )
-            metrics = result.metrics
-            warnings = result.warnings
-            gen_ratios = [s.gen_ratio for s in result.surviving_lines]
+            in_window = [
+                s for s in surviving
+                if args.startTime <= s.blame_timestamp <= args.endTime
+            ]
+            gen_ratios = [s.gen_ratio for s in in_window]
+            metrics = compute_all_metrics(gen_ratios, args.threshold)
 
         elif args.algorithm == "A":
             v2603_records = [r for r in records if isinstance(r, GenCodeDescV2603)]

@@ -209,3 +209,161 @@ def compute_alg_c_metrics(
         metrics=metrics,
         warnings=warnings,
     )
+
+
+def stream_accumulate_surviving_set(
+    gencode_dir: str,
+    end_time: str,
+    return_warnings: bool = False,
+) -> List[SurvivingLine] | Tuple[List[SurvivingLine], List[str]]:
+    import json
+    from pathlib import Path
+
+    warnings: List[str] = []
+    path = Path(gencode_dir)
+
+    file_info: List[Tuple[str, Path]] = []
+    for jf in sorted(path.glob("*.json")):
+        try:
+            with open(jf, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            ts = data.get("REPOSITORY", {}).get("revisionTimestamp", "")
+            file_info.append((ts, jf))
+        except (json.JSONDecodeError, KeyError, OSError) as e:
+            warnings.append(f"Skipping unreadable file {jf.name}: {e}")
+
+    file_info.sort(key=lambda x: x[0])
+
+    surviving: Dict[str, SurvivingLine] = {}
+    position_index: Dict[str, str] = {}
+
+    for ts, jf in file_info:
+        if ts > end_time:
+            continue
+        try:
+            with open(jf, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            warnings.append(f"I/O error reading {jf.name}: {e}")
+            continue
+
+        details = data.get("DETAIL", [])
+        if not details:
+            continue
+
+        add_count = 0
+        for df_data in details:
+            for entry in df_data.get("codeLines", []) + df_data.get("docLines", []):
+                if entry.get("changeType") == "add":
+                    if "lineRange" in entry:
+                        rng = entry["lineRange"]
+                        add_count += rng["to"] - rng["from"] + 1
+                    elif "lineLocation" in entry:
+                        add_count += 1
+
+        summary = data.get("SUMMARY", {})
+        total_code = summary.get("totalCodeLines", 0)
+        if total_code > 0 and add_count != total_code:
+            rev_id = data.get("REPOSITORY", {}).get("revisionId", "?")
+            warnings.append(
+                f"SUMMARY mismatch for revision {rev_id}: "
+                f"expected totalCodeLines={total_code}, found {add_count} add entries"
+            )
+
+        for df_data in details:
+            file_name = df_data.get("fileName", "")
+            for entry in df_data.get("codeLines", []) + df_data.get("docLines", []):
+                change_type = entry.get("changeType", "")
+                blame_data = entry.get("blame", {})
+
+                if change_type == "delete":
+                    if "originalLineRange" in blame_data:
+                        rng = blame_data["originalLineRange"]
+                        for line in range(rng["from"], rng["to"] + 1):
+                            key = _make_blame_key(
+                                blame_data.get("revisionId", ""),
+                                blame_data.get("originalFilePath", ""),
+                                line,
+                            )
+                            if key in surviving:
+                                sl = surviving[key]
+                                pos_key = _make_position_key(sl.file_name, sl.line_location)
+                                position_index.pop(pos_key, None)
+                                del surviving[key]
+                    else:
+                        key = _make_blame_key(
+                            blame_data.get("revisionId", ""),
+                            blame_data.get("originalFilePath", ""),
+                            blame_data.get("originalLine", 0),
+                        )
+                        if key in surviving:
+                            sl = surviving[key]
+                            pos_key = _make_position_key(sl.file_name, sl.line_location)
+                            position_index.pop(pos_key, None)
+                            del surviving[key]
+
+                elif change_type == "add":
+                    gen_ratio = entry.get("genRatio", 0)
+                    gen_method = entry.get("genMethod", "Manual")
+                    if "lineRange" in entry:
+                        rng = entry["lineRange"]
+                        orig_line = blame_data.get("originalLine", rng["from"])
+                        for i, line_idx in enumerate(range(rng["from"], rng["to"] + 1)):
+                            blame_key = _make_blame_key(
+                                blame_data.get("revisionId", ""),
+                                blame_data.get("originalFilePath", file_name),
+                                orig_line + i,
+                            )
+                            pos_key = _make_position_key(file_name, line_idx)
+                            if pos_key in position_index:
+                                old_key = position_index[pos_key]
+                                if old_key in surviving:
+                                    del surviving[old_key]
+                                warnings.append(
+                                    f"Position collision: file={file_name} line={line_idx}"
+                                )
+                            sl = SurvivingLine(
+                                blame_revision_id=blame_data.get("revisionId", ""),
+                                original_file_path=blame_data.get("originalFilePath", file_name),
+                                original_line=orig_line + i,
+                                gen_ratio=gen_ratio,
+                                gen_method=gen_method,
+                                blame_timestamp=blame_data.get("timestamp", ""),
+                                file_name=file_name,
+                                line_location=line_idx,
+                            )
+                            surviving[blame_key] = sl
+                            position_index[pos_key] = blame_key
+                    elif "lineLocation" in entry:
+                        line_loc = entry["lineLocation"]
+                        orig_line = blame_data.get("originalLine", line_loc)
+                        blame_key = _make_blame_key(
+                            blame_data.get("revisionId", ""),
+                            blame_data.get("originalFilePath", file_name),
+                            orig_line,
+                        )
+                        pos_key = _make_position_key(file_name, line_loc)
+                        if pos_key in position_index:
+                            old_key = position_index[pos_key]
+                            if old_key in surviving:
+                                del surviving[old_key]
+                            warnings.append(
+                                f"Position collision: file={file_name} line={line_loc}"
+                            )
+                        sl = SurvivingLine(
+                            blame_revision_id=blame_data.get("revisionId", ""),
+                            original_file_path=blame_data.get("originalFilePath", file_name),
+                            original_line=orig_line,
+                            gen_ratio=gen_ratio,
+                            gen_method=gen_method,
+                            blame_timestamp=blame_data.get("timestamp", ""),
+                            file_name=file_name,
+                            line_location=line_loc,
+                        )
+                        surviving[blame_key] = sl
+                        position_index[pos_key] = blame_key
+
+    result = list(surviving.values())
+    if return_warnings:
+        return result, warnings
+    return result

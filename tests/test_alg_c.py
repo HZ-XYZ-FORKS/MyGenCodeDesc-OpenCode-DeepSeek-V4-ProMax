@@ -424,3 +424,92 @@ class TestComputeAlgCMetrics:
         )
         assert len(result.surviving_lines) >= 1
         assert result.metrics.weighted.value > 0.0
+
+
+class TestStreaming:
+    def test_streaming_matches_in_memory(self, tmp_path):
+        from aggregateGenCodeDesc.alg_c import stream_accumulate_surviving_set
+        import json
+
+        records = [
+            _make_v2604_record(
+                "c1", "2026-01-01T00:00:00Z",
+                [DetailFileV2604(
+                    fileName="app.py",
+                    codeLines=[
+                        _make_add_entry(1, "c1", "app.py", 1, "2026-01-01T00:00:00Z", gen_ratio=100),
+                        _make_add_entry(2, "c1", "app.py", 2, "2026-01-01T00:00:00Z", gen_ratio=80),
+                    ],
+                )],
+            ),
+            _make_v2604_record(
+                "c2", "2026-01-02T00:00:00Z",
+                [DetailFileV2604(
+                    fileName="app.py",
+                    codeLines=[
+                        _make_delete_entry("c1", "app.py", 2),
+                        _make_add_entry(2, "c2", "app.py", 2, "2026-01-02T00:00:00Z", gen_ratio=50),
+                    ],
+                )],
+            ),
+        ]
+        in_mem = accumulate_surviving_set(records, end_time="2026-12-31T23:59:59Z")
+        assert len(in_mem) == 2
+
+        gcd_dir = tmp_path / "gcd"
+        gcd_dir.mkdir()
+        for i, r in enumerate(records):
+            d = {
+                "protocolVersion": "26.04",
+                "REPOSITORY": {"revisionId": r.REPOSITORY.revisionId, "revisionTimestamp": r.REPOSITORY.revisionTimestamp},
+                "DETAIL": [
+                    {"fileName": df.fileName, "codeLines": [
+                        {"changeType": e.changeType, "genRatio": getattr(e, "genRatio", 0), "genMethod": getattr(e, "genMethod", "Manual"),
+                         "lineLocation": e.lineLocation, "blame": {"revisionId": e.blame.revisionId, "originalFilePath": e.blame.originalFilePath, "originalLine": e.blame.originalLine, "timestamp": e.blame.timestamp or ""}}
+                        for e in df.codeLines
+                    ]}
+                    for df in r.DETAIL
+                ],
+            }
+            (gcd_dir / f"{r.REPOSITORY.revisionId}.json").write_text(json.dumps(d))
+
+        streamed = stream_accumulate_surviving_set(str(gcd_dir), end_time="2026-12-31T23:59:59Z")
+        assert len(streamed) == len(in_mem)
+
+        in_mem_ratios = {s.gen_ratio for s in in_mem}
+        streamed_ratios = {s.gen_ratio for s in streamed}
+        assert in_mem_ratios == streamed_ratios
+
+    def test_io_error_on_one_file_continues(self, tmp_path):
+        """AC-008-4: Mid-stream I/O failure — unreadable file skipped, others processed."""
+        from aggregateGenCodeDesc.alg_c import stream_accumulate_surviving_set
+        import json
+
+        gcd_dir = tmp_path / "gcd"
+        gcd_dir.mkdir()
+
+        record = _make_v2604_record(
+            "c1", "2026-01-01T00:00:00Z",
+            [DetailFileV2604(
+                fileName="app.py",
+                codeLines=[_make_add_entry(1, "c1", "app.py", 1, "2026-01-01T00:00:00Z", gen_ratio=100)],
+            )],
+        )
+        d = {
+            "protocolVersion": "26.04",
+            "REPOSITORY": {"revisionId": "c1", "revisionTimestamp": "2026-01-01T00:00:00Z"},
+            "DETAIL": [{"fileName": "app.py", "codeLines": [{
+                "changeType": "add", "genRatio": 100, "genMethod": "vibeCoding",
+                "lineLocation": 1,
+                "blame": {"revisionId": "c1", "originalFilePath": "app.py", "originalLine": 1, "timestamp": "2026-01-01T00:00:00Z"},
+            }]}],
+        }
+
+        (gcd_dir / "good.json").write_text(json.dumps(d))
+        (gcd_dir / "bad.json").write_text("not valid json {{{")
+
+        streamed, warnings = stream_accumulate_surviving_set(
+            str(gcd_dir), end_time="2026-12-31T23:59:59Z", return_warnings=True,
+        )
+        assert len(streamed) == 1
+        assert any("bad.json" in w for w in warnings)
