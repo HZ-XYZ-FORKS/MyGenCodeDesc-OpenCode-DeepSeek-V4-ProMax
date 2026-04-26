@@ -42,10 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--outputDir", default="./out", help="Output directory")
     parser.add_argument("--logLevel", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--repoPath", default=None, help="Local repo path (AlgA)")
-    parser.add_argument("--endRev", default=None, help="Revision to checkout before blame (AlgA)")
     parser.add_argument("--commitPatchDir", default=None, help="Diff patch directory (AlgB)")
-    parser.add_argument("--onMissing", default=None, help="Missing revision policy")
-    parser.add_argument("--onDuplicate", default="reject", help="Duplicate revision policy")
+    parser.add_argument("--onMissing", default=None, choices=["zero", "skip", "abort", "ignore"],
+                        help="Missing genCodeDesc policy (A/B: zero/skip/abort; C: abort/ignore)")
+    parser.add_argument("--onDuplicate", default="reject", help="Duplicate revisionId policy")
     parser.add_argument("--onClockSkew", default="abort", help="Clock skew policy (AlgC)")
     parser.add_argument("--blameWhitespace", default="respect", choices=["respect", "ignore"])
     parser.add_argument("--renameDetection", default="basic", choices=["off", "basic", "aggressive"])
@@ -117,6 +117,18 @@ def _make_real_patch(repo_path, repo_branch, start_time, end_time, algorithm, sc
             lines.append(f"+[genRatio={sl.gen_ratio}] line {sl.line_location}")
         return header + "\n".join(lines)
     return header
+
+
+def _enforce_on_missing(on_missing, missing_revisions, in_window_lines, logger):
+    if not missing_revisions:
+        return in_window_lines
+    policy = on_missing or ("zero" if len(in_window_lines) > 0 else "skip")
+    logger.info(f"Missing genCodeDesc for {len(missing_revisions)} revisions, policy={policy}")
+    if policy == "abort":
+        raise ValidationError(f"Missing genCodeDesc for revisions: {missing_revisions}")
+    if policy == "skip":
+        return [l for l in in_window_lines if l.origin_revision not in missing_revisions]
+    return in_window_lines
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -287,6 +299,12 @@ def main(argv: Optional[list] = None) -> int:
         logger.error(f"Runtime error: {e}")
         return EXIT_RUNTIME_ERROR
 
+    if args.onMissing == "abort" and warnings:
+        for w in warnings:
+            if any(kw in w.lower() for kw in ("missing", "unreadable", "skipping")):
+                logger.error(f"Aborting due to {w} (--onMissing=abort)")
+                return EXIT_VALIDATION_ERROR
+
     output_dir = Path(args.outputDir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -433,6 +451,12 @@ def main(argv: Optional[list] = None) -> int:
     except Exception as e:
         logger.error(f"Runtime error: {e}")
         return EXIT_RUNTIME_ERROR
+
+    if args.onMissing == "abort" and warnings:
+        for w in warnings:
+            if any(kw in w.lower() for kw in ("missing", "unreadable", "skipping")):
+                logger.error(f"Aborting due to {w} (--onMissing=abort)")
+                return EXIT_VALIDATION_ERROR
 
     output_dir = Path(args.outputDir)
     output_dir.mkdir(parents=True, exist_ok=True)
