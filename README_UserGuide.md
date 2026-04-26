@@ -239,55 +239,114 @@ The cells below describe prerequisites, a minimal example command shape, and kno
 #### git · local · A (live blame)
 
 - **Prereqs**: working copy on disk; `git` on PATH; `genCodeDescDir` is v26.03.
-- **Example shape**:
+- **Example**:
   ```
   aggregateGenCodeDesc \
-    --repoUrl file:///srv/repos/foo \
-    --repoBranch main \
+    --repoUrl file:///srv/repos/foo --repoBranch main \
     --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
     --threshold 60 --algorithm A --scope A \
-    --genCodeDescDir ./gcd/ \
+    --genCodeDescDir ./gcd-v26.03/ --repoPath /srv/repos/foo \
     --outputDir ./out/
   ```
 - **Limits**: shallow clone invalidates blame (AC-005-4).
 
 #### git · local · B (offline diff replay)
 
-- **Prereqs**: working copy with full object DB in window; `commitPatchDir` populated.
+- **Prereqs**: working copy; `commitPatchDir` populated with `<revisionId>.patch` files.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl file:///srv/repos/foo --repoBranch main \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm B --scope A \
+    --genCodeDescDir ./gcd-v26.03/ --repoPath /srv/repos/foo \
+    --commitPatchDir ./diffs/ --outputDir ./out/
+  ```
 - **Limits**: deep rename chains inflate state (README scale table).
 
 #### git · local · C (embedded blame, v26.04 only)
 
-- **Prereqs**: **no VCS access needed** — `repoUrl` / `repoBranch` are used for validation only. `genCodeDescDir` must contain v26.04.
+- **Prereqs**: **no VCS access needed**; `genCodeDescDir` must contain v26.04.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl https://github.com/acme/foo --repoBranch main \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm C --scope A \
+    --genCodeDescDir ./gcd-v26.04/ --outputDir ./out/
+  ```
 - **Limits**: trust shifts fully to codeAgent write-time correctness.
 
 ### 4.2 git × remote
 
 #### git · remote · A
 
-- **Prereqs**: caller must either clone the remote ahead of time (passing path via `--repoPath`) or the fork auto-clones to a working directory. The tool itself should not require the caller to know VCS internals.
+- **Prereqs**: `--repoPath` or the tool auto-clones to temp directory.
+- **Example** (auto-clone):
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl https://github.com/acme/foo --repoBranch main \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm A --scope A \
+    --genCodeDescDir ./gcd-v26.03/ --outputDir ./out/
+  ```
 - **Limits**: shallow clones invalidate blame (AC-005-4).
 
 #### git · remote · B
 
-- **Prereqs**: caller supplies pre-computed per-revision patches in `commitPatchDir`. The tool never fetches from the remote directly.
+- **Prereqs**: `commitPatchDir` with pre-exported patches; `--repoPath` for ordering.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl https://github.com/acme/foo --repoBranch main \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm B --scope A \
+    --genCodeDescDir ./gcd-v26.03/ --repoPath /local/clone \
+    --commitPatchDir ./diffs/ --outputDir ./out/
+  ```
 - **Limits**: patch preparation is the caller's responsibility.
 
 #### git · remote · C
 
-- **Prereqs**: **no network access to the repo**. Pass `repoUrl`/`repoBranch` only so the result JSON is self-identifying.
+- **Prereqs**: **no network access**. `genCodeDescDir` is v26.04.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl https://github.com/acme/foo --repoBranch main \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm C --scope A \
+    --genCodeDescDir ./gcd-v26.04/ --outputDir ./out/
+  ```
 - **Recommended** for air-gapped / batch scenarios.
 
 ### 4.3 svn × local
 
 #### svn · local · A
 
-- **Prereqs**: working copy; `svn` on PATH.
-- **Limits**: `svn blame` imprecision on merge-originated lines (README Git-vs-SVN table).
+- **Prereqs**: working copy; `svn` on PATH; `genCodeDescDir` is v26.03.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl file:///srv/svn/repo --repoBranch /trunk \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm A --scope A \
+    --genCodeDescDir ./gcd-v26.03/ --repoPath /srv/svn/wc \
+    --outputDir ./out/
+  ```
+- **Limits**: `svn blame` imprecision on merge-originated lines.
 
 #### svn · local · B
 
-- **Prereqs**: working copy; per-revision patches via `svn diff -rN:M`.
+- **Prereqs**: working copy; per-revision patches via `svn diff -cN`.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl file:///srv/svn/repo --repoBranch /trunk \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm B --scope A \
+    --genCodeDescDir ./gcd-v26.03/ --repoPath /srv/svn/wc \
+    --commitPatchDir ./svn-diffs/ --outputDir ./out/
+  ```
 - **Limits**: no cross-file move detection.
 
 #### svn · local · C
@@ -298,12 +357,30 @@ The cells below describe prerequisites, a minimal example command shape, and kno
 
 #### svn · remote · A
 
-- **Prereqs**: caller pre-checks-out the svn working copy. `repoBranch` must be the SVN path (e.g. `trunk`).
+- **Prereqs**: working copy (checked out ahead of time); `svn` on PATH.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl svn://svn.example.com/repo --repoBranch /trunk \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm A --scope A \
+    --genCodeDescDir ./gcd-v26.03/ --repoPath /local/svn-checkout \
+    --outputDir ./out/
+  ```
 - **Limits**: the tool should not contact the svn server directly.
 
 #### svn · remote · B
 
-- **Prereqs**: caller supplies pre-computed per-revision patches in `commitPatchDir`.
+- **Prereqs**: pre-exported patches in `commitPatchDir`; `svn` on PATH for ordering.
+- **Example**:
+  ```
+  aggregateGenCodeDesc \
+    --repoUrl svn://svn.example.com/repo --repoBranch /trunk \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
+    --threshold 60 --algorithm B --scope A \
+    --genCodeDescDir ./gcd-v26.03/ --repoPath /local/svn-checkout \
+    --commitPatchDir ./svn-diffs/ --outputDir ./out/
+  ```
 - **Limits**: patch preparation is the caller's responsibility.
 
 #### svn · remote · C
