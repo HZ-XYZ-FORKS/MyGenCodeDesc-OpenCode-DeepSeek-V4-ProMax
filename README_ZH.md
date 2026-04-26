@@ -1,13 +1,13 @@
-# MyGenCodeDescBase
+# MyGenCodeDesc — OpenCode + DeepSeek-V4-ProMax + Python
 
-- genCodeDesc 的 BASE（基座），用来和各种 CodeAgent 和 LLM 组合做 PlayKata，比如 Copilot+[GPT, Opus, Sonnet]。
-  - 意思就是：这个 BASE 里面只放 genCodeDesc 的 WHAT（是什么）和 WHY（为什么），然后针对不同的 CodeAgent 和 LLM 去 fork 出来做 WHEN、WHERE、HOW 的具体实现。
+- **CodeAgent**: OpenCode | **LLM**: DeepSeek-V4-ProMax | **语言**: Python (PlayKata)
+- [MyGenCodeDescBase](https://github.com/EnigmaWU/MyGenCodeDescBase) 的实现 fork — BASE 定义 genCodeDesc 的 WHAT 和 WHY；本 fork 实现 WHEN、WHERE、HOW。
   - 用的方法是 CaTDD（注释驱动的测试先行开发）：
     - UserStory+UserGuide -> AcceptanceCriteria -> TestCase。
     - ArchDesign -> DetailDesign -> Implementation。
 
-- 举个例子：
-  - `fork` MyGenCodeDescBase -> MyGenCodeDesc_Copilot_GPT-5.4-Xhigh_Python
+- 团队参考：
+  - `fork` MyGenCodeDescBase -> MyGenCodeDesc_OpenCode_DeepSeek-V4-ProMax_Python
 
 ---
 
@@ -49,7 +49,7 @@
   | 主要 AI (>=60) | 8 / 10 = **80%** |
 
 - 我们要一个叫 **`aggregateGenCodeDesc`** 的工具来算这个度量。
-  - 语言：**Python** 或 **C++** 或 **Rust**——每个 fork 选一种。
+  - 语言：**Python**（本 fork 使用 Python）
   - 输入：`repoURL + repoBranch + startTime + endTime + threshold` + genCodeDesc 元数据。
   - 输出：聚合结果，用 genCodeDesc 协议格式的 JSON 输出，包含三种模式的值。
   - 必须支持本 BASE 定义的 Algorithm A/B/C 和 Scope A/B/C/D。
@@ -167,3 +167,67 @@ VCS 里会影响行归属的各种情况，每个 fork 都得正确处理。
 | **排序** | 不需要——blame 按文件来，跟顺序无关。 | 提交必须拓扑排序。1K 个提交——不费事。 | 1K 个 genCodeDesc 按 `revisionTimestamp` 排序。O(N log N)，N=1K——**轻松**。 |
 | **最坏情况** | 10K 个文件 × 深层改名链——blame 得追着 1K 次提交的改名跑。`git blame -C -C` **慢 10 倍**。 | 每次提交改名 100 个文件 → 行位置追踪器得跟 1K 个 diff 里 100K 次改名。状态爆炸。 | 10 亿次集合操作 + 6 GB 哈希表。如果 genCodeDesc 文件有错（重复 key），存活集**静默损坏**。 |
 | **缓解措施** | 并行跑 blame（100 并发）。用 `git blame --incremental` 流式处理。缓存结果。跳过上次以来没变的文件。 | 限制窗口大小。流式处理 diff。按文件路径分片回放。预计算文件改名图。 | 按时间顺序流式读 genCodeDesc——别一次加载 200 GB。按文件路径分片存活集。大 JSON 用 mmap。用 SUMMARY 校验条目数。 |
+
+---
+
+## ======>>>本 Fork：OpenCode + DeepSeek-V4-ProMax + Python<<<======
+
+### 实现范围
+
+| 维度 | 目标 |
+|---|---|
+| **语言** | Python 3.10+ |
+| **CodeAgent** | OpenCode（本次会话） |
+| **LLM** | DeepSeek-V4-ProMax |
+| **协议** | v26.03 + v26.04 |
+| **算法** | A、B、C（全部三种） |
+| **范围** | A、B、C、D（全部四种） |
+| **VCS** | Git（主要），SVN（适用时） |
+| **CLI** | 强制 lower-camel-case 参数，见 UserGuide §2 |
+
+### 开发方法
+
+**CaTDD**（注释驱动的测试先行开发）：
+
+1. 阅读 UserStory + UserGuide → 推导 AcceptanceCriteria
+2. 为每个 AC 编写测试用例（RED 阶段）
+3. 实现最小代码使测试通过（GREEN 阶段）
+4. 重构至整洁设计
+5. 重复，直到所有适用的 59 个 AC 全部通过
+
+### 路线图
+
+| 阶段 | 内容 | 覆盖的 AC |
+|---|---|---|
+| **1. 领域模型** | 协议（v26.03/v26.04）、类型、校验、JSON 加载器 | AC-006-2, AC-006-5, AC-006-6 |
+| **2. 核心度量** | Weighted / Fully AI / Mostly AI 计算 | AC-001-1 ~ AC-001-7 |
+| **3. 算法 C** | v26.04 内嵌 blame — add/delete 累积、存活集 | AC-009-7 ~ AC-009-9, AC-006-1(C) |
+| **4. 算法 A** | v26.03 + 实时 `git blame` — blob/commit 遍历 | AC-009-1 ~ AC-009-3 |
+| **5. 算法 B** | v26.03 + diff 回放 — patch 解析、行血统 | AC-009-4 ~ AC-009-6 |
+| **6. CLI + 输出** | argparse、`aggregateGenCodeDesc` CLI、JSON 输出、`.patch` | AC-006-1(A/B), AC-010-1 ~ AC-010-7 |
+| **7. 边界条件** | 文件/提交/行级别场景、Git/SVN 差异、规模/鲁棒性 | AC-002-x, AC-003-x, AC-004-x, AC-005-x, AC-007-x, AC-008-x |
+
+### 项目结构（规划）
+
+```
+aggregateGenCodeDesc/    # Python 包
+├── __init__.py
+├── cli.py               # argparse CLI 入口
+├── models.py            # 协议 v26.03/v26.04 数据模型
+├── loader.py            # genCodeDesc JSON 加载器 + 校验
+├── metrics.py           # 核心度量计算（Weighted/Fully/Mostly AI）
+├── alg_a.py             # 算法 A：实时 blame
+├── alg_b.py             # 算法 B：diff 回放
+├── alg_c.py             # 算法 C：内嵌 blame
+├── output.py            # 输出：genCodeDescV26.03.json + commitStart2EndTime.patch
+└── logger.py            # 结构化日志（--logLevel）
+tests/                   # pytest 测试套件
+├── test_models.py
+├── test_loader.py
+├── test_metrics.py
+├── test_alg_a.py
+├── test_alg_b.py
+├── test_alg_c.py
+├── test_cli.py
+└── test_output.py
+```

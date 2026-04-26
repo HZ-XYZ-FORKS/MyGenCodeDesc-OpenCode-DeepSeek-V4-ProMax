@@ -1,13 +1,13 @@
-# MyGenCodeDescBase
+# MyGenCodeDesc — OpenCode + DeepSeek-V4-ProMax + Python
 
-- BASE of genCodeDesc, used to PlayKata with CodeAgent&LLM such as Copilot+[GPT,Opus,Sonnet].
-  - which means: we have WHAT&WHY of genCodeDesc in this BASE, then we fork genCodeDesc for different CodeAgent&LLM to implement WHEN&WHERE&HOW to genCodeDesc.
+- **CodeAgent**: OpenCode | **LLM**: DeepSeek-V4-ProMax | **Language**: Python (PlayKata)
+- Implementation fork of [MyGenCodeDescBase](https://github.com/EnigmaWU/MyGenCodeDescBase) — the BASE defines WHAT & WHY of genCodeDesc; this fork implements WHEN & WHERE & HOW.
   - use method: CaTDD(Comment-alive Test-Driven Development) from:
     - UserStory+UserGuide -> AcceptanceCriteria -> TestCase.
     - ArchDesign -> DetailDesign -> Implementation.
 
-- Example:
-  - `fork` MyGenCodeDescBase -> MyGenCodeDesc_Copilot_GPT-5.4-Xhigh_Python
+- Team reference:
+  - `fork` MyGenCodeDescBase -> MyGenCodeDesc_OpenCode_DeepSeek-V4-ProMax_Python
 
 ---
 
@@ -49,7 +49,7 @@
   | Mostly AI (>=60) | 8 / 10 = **80%** |
 
 - We want a tool named **`aggregateGenCodeDesc`** to compute this metric.
-  - Language: **Python** or **C++** or **Rust** — each fork chooses one.
+  - Language: **Python** (this fork uses Python).
   - Input: `repoURL + repoBranch + startTime + endTime + threshold` + genCodeDesc metadata.
   - Output: aggregate result in genCodeDesc protocol-shaped JSON, including all three mode values.
   - Must support Algorithm A/B/C and Scope A/B/C/D as defined in this BASE.
@@ -167,3 +167,67 @@ Reference scale: **1K commits × 100 files/commit × 10K lines/file add-or-delet
 | **Sorting** | N/A — blame is per-file, order-independent. | Commits must be in topological order. 1K commits — trivial. | Must sort 1K genCodeDescs by `revisionTimestamp`. O(N log N), N=1K — **trivial**. |
 | **Worst case** | 10K files × deep rename chains — blame must trace through renames across 1K commits. `git blame -C -C` is **10× slower**. | 100 files renamed every commit → line-position tracker must follow 100K renames over 1K diffs. State explosion. | 1B set operations + 6 GB hash map. If genCodeDesc files have errors (duplicate keys), surviving set is **silently corrupted**. |
 | **Mitigation** | Parallelize blame (100 concurrent). `git blame --incremental` for streaming. Cache blame results. Skip files unchanged since last run. | Limit window size. Stream diffs. Shard replay by file path. Pre-compute file rename graph. | Stream genCodeDescs in order — don't load all 200 GB at once. Shard surviving set by file path. Use mmap for large JSON. Validate entry counts against SUMMARY. |
+
+---
+
+## ======>>>THIS FORK: OpenCode + DeepSeek-V4-ProMax + Python<<<======
+
+### Implementation Scope
+
+| Axis | Target |
+|---|---|
+| **Language** | Python 3.10+ |
+| **CodeAgent** | OpenCode (this session) |
+| **LLM** | DeepSeek-V4-ProMax |
+| **Protocols** | v26.03 + v26.04 |
+| **Algorithms** | A, B, C (all three) |
+| **Scopes** | A, B, C, D (all four) |
+| **VCS** | Git (primary), SVN (where applicable) |
+| **CLI** | Mandatory lower-camel-case arguments per UserGuide §2 |
+
+### Development Method
+
+**CaTDD** (Comment-alive Test-Driven Development):
+
+1. READ UserStory + UserGuide → derive AcceptanceCriteria
+2. WRITE test cases for each AC (RED phase)
+3. IMPLEMENT minimal code to pass tests (GREEN phase)
+4. REFACTOR for clean design
+5. REPEAT until all applicable 59 ACs pass
+
+### Roadmap
+
+| Phase | What | ACs Covered |
+|---|---|---|
+| **1. Domain model** | Protocols (v26.03/v26.04), types, validation, JSON loader | AC-006-2, AC-006-5, AC-006-6 |
+| **2. Core metric** | Weighted / Fully AI / Mostly AI calculation | AC-001-1 ~ AC-001-7 |
+| **3. Algorithm C** | v26.04 embedded blame — add/delete accumulation, surviving set | AC-009-7 ~ AC-009-9, AC-006-1(C) |
+| **4. Algorithm A** | v26.03 + live `git blame` — blob/commit walk | AC-009-1 ~ AC-009-3 |
+| **5. Algorithm B** | v26.03 + diff replay — patch parsing, line lineage | AC-009-4 ~ AC-009-6 |
+| **6. CLI + Output** | argparse, `aggregateGenCodeDesc` CLI, JSON output, `.patch` | AC-006-1(A/B), AC-010-1 ~ AC-010-7 |
+| **7. Edge conditions** | File/commit/line-level scenarios, Git/SVN diff, scale/robustness | AC-002-x, AC-003-x, AC-004-x, AC-005-x, AC-007-x, AC-008-x |
+
+### Project Structure (planned)
+
+```
+aggregateGenCodeDesc/    # Python package
+├── __init__.py
+├── cli.py               # argparse CLI entry point
+├── models.py            # Protocol v26.03/v26.04 data models
+├── loader.py            # genCodeDesc JSON loader + validation
+├── metrics.py           # Core metric calculation (Weighted/Fully/Mostly AI)
+├── alg_a.py             # Algorithm A: live blame
+├── alg_b.py             # Algorithm B: diff replay
+├── alg_c.py             # Algorithm C: embedded blame
+├── output.py            # Output: genCodeDescV26.03.json + commitStart2EndTime.patch
+└── logger.py            # Structured logging (--logLevel)
+tests/                   # pytest test suite
+├── test_models.py
+├── test_loader.py
+├── test_metrics.py
+├── test_alg_a.py
+├── test_alg_b.py
+├── test_alg_c.py
+├── test_cli.py
+└── test_output.py
+```
