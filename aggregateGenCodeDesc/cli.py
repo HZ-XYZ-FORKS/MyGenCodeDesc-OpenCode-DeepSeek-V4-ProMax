@@ -126,7 +126,7 @@ def main(argv: Optional[list] = None) -> int:
                 clone_dir = Path(tempfile.mkdtemp(prefix="aggregateGenCode_"))
                 cleanup_clone = clone_dir
                 logger.info(f"Auto-cloning {args.repoUrl} to {clone_dir}")
-                r = subprocess.run(["git", "clone", "--depth", "0", args.repoUrl, str(clone_dir)],
+                r = subprocess.run(["git", "clone", args.repoUrl, str(clone_dir)],
                                  capture_output=True, text=True, timeout=600)
                 if r.returncode != 0:
                     logger.error(f"Clone failed: {r.stderr.strip()}")
