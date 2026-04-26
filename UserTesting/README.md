@@ -35,7 +35,7 @@ print(json.dumps(d['AGGREGATE']['metrics'], indent=2))
 
 | Asset | Path | Purpose |
 |-------|------|---------|
-| Git repo (10 commits) | `demo_work/repo/` | Source of truth for blame/diff |
+| Git repo (13 commits) | `demo_work/repo/` | Source of truth for blame/diff |
 | genCodeDesc v26.04 | `demo_work/gcd-v26.04/` | Input for Algorithm C |
 | genCodeDesc v26.03 | `demo_work/gcd-v26.03/` | Input for Algorithms A, B |
 | Commit patches | `demo_work/patches/` | Input for Algorithm B replay |
@@ -46,8 +46,8 @@ print(json.dumps(d['AGGREGATE']['metrics'], indent=2))
 ### 1. Algorithm C — Hermetic CI (cell 3)
 
 ```bash
-python3 -m aggregateGenCodeDesc.cli \
-  --repoUrl "https://github.com/demo/repo" \
+PYTHONPATH="$(cd .. && pwd)" python3 -m aggregateGenCodeDesc.cli \
+  --repoUrl "file://$PWD/demo_work/repo" \
   --repoBranch main \
   --startTime 2026-01-01T00:00:00Z \
   --endTime 2026-04-15T00:00:00Z \
@@ -57,7 +57,7 @@ python3 -m aggregateGenCodeDesc.cli \
   --outputDir demo_work/out/manual/
 
 ls demo_work/out/manual/
-# → genCodeDescV26.03.json  commitStart2EndTime.patch
+# -> genCodeDescV26.03.json  commitStart2EndTime.patch
 ```
 
 **Verify**: Open `genCodeDescV26.03.json` and check that `AGGREGATE.metrics.weighted.value > 0`. No VCS was accessed.
@@ -65,7 +65,7 @@ ls demo_work/out/manual/
 ### 2. Algorithm A — Live Blame (cell 1)
 
 ```bash
-python3 -m aggregateGenCodeDesc.cli \
+PYTHONPATH="$(cd .. && pwd)" python3 -m aggregateGenCodeDesc.cli \
   --repoUrl "file://$PWD/demo_work/repo" \
   --repoBranch main \
   --startTime 2026-01-01T00:00:00Z \
@@ -82,7 +82,7 @@ python3 -m aggregateGenCodeDesc.cli \
 ### 3. Algorithm B — Diff Replay (cell 2)
 
 ```bash
-python3 -m aggregateGenCodeDesc.cli \
+PYTHONPATH="$(cd .. && pwd)" python3 -m aggregateGenCodeDesc.cli \
   --repoUrl "file://$PWD/demo_work/repo" \
   --repoBranch main \
   --startTime 2026-01-01T00:00:00Z \
@@ -100,33 +100,33 @@ python3 -m aggregateGenCodeDesc.cli \
 ### 4. Error Handling
 
 ```bash
-# Wrong protocol version → exit 2
-python3 -m aggregateGenCodeDesc.cli \
+# Wrong protocol version -> exit 2
+PYTHONPATH="$(cd .. && pwd)" python3 -m aggregateGenCodeDesc.cli \
   --repoUrl "file://$PWD/demo_work/repo" --repoBranch main \
   --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
   --algorithm A --scope A \
   --genCodeDescDir demo_work/gcd-v26.04/ \
   --outputDir demo_work/out/err/ 2>&1
-echo "Exit code: $?"  # → 2
+echo "Exit code: $?"  # -> 2
 
-# Duplicate revision → exit 2 (default policy)
+# Duplicate revision -> exit 2 (default policy)
 mkdir -p demo_work/gcd-dup
 cp demo_work/gcd-v26.04/*.json demo_work/gcd-dup/
 cp "$(ls demo_work/gcd-v26.04/*.json | head -1)" demo_work/gcd-dup/dup.json
-python3 -m aggregateGenCodeDesc.cli \
-  --repoUrl "https://github.com/demo/repo" --repoBranch main \
+PYTHONPATH="$(cd .. && pwd)" python3 -m aggregateGenCodeDesc.cli \
+  --repoUrl "file://$PWD/demo_work/repo" --repoBranch main \
   --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
   --algorithm C --scope A \
   --genCodeDescDir demo_work/gcd-dup/ \
   --outputDir demo_work/out/err2/ 2>&1
-echo "Exit code: $?"  # → 2
+echo "Exit code: $?"  # -> 2
 ```
 
 ### 5. Logging Levels
 
 ```bash
-python3 -m aggregateGenCodeDesc.cli \
-  --repoUrl "https://github.com/demo/repo" --repoBranch main \
+PYTHONPATH="$(cd .. && pwd)" python3 -m aggregateGenCodeDesc.cli \
+  --repoUrl "file://$PWD/demo_work/repo" --repoBranch main \
   --startTime 2026-01-01T00:00:00Z --endTime 2026-04-01T00:00:00Z \
   --algorithm C --scope A --threshold 60 \
   --genCodeDescDir demo_work/gcd-v26.04/ \
@@ -136,20 +136,20 @@ python3 -m aggregateGenCodeDesc.cli \
 
 ## 12-Cell Coverage
 
-| # | Cell | run_demo.sh test | Manual command above |
-|---|------|:---:|:---:|
-| 1 | git · local · A | cell-01-git-local-A | Step 2 |
-| 2 | git · local · B | cell-02-git-local-B | Step 3 |
-| 3 | git · local · C | cell-03-git-local-C | Step 1 |
-| 4 | git · remote · A | cell-04-git-remote-A | (same as Step 2, fire:// URL) |
-| 5 | git · remote · B | — | `--commitPatchDir` + `file://` URL |
-| 6 | git · remote · C | — | same as Step 1 |
-| 7 | svn · local · A | cell-07-svn-local-A | (svn required) |
-| 8 | svn · local · B | — | svn diff patches |
-| 9 | svn · local · C | — | same as Step 1 |
-| 10 | svn · remote · A | — | svn blame via URL |
-| 11 | svn · remote · B | — | svn diff patches |
-| 12 | svn · remote · C | — | same as Step 1 |
+| # | Cell | run_demo.sh | Covers |
+|---|------|:---:|--------|
+| 1 | git · local · A | `cell-01-git-local-A` | Live blame, --repoPath |
+| 2 | git · local · B | `cell-02-git-local-B` | Diff replay, --commitPatchDir |
+| 3 | git · local · C | `cell-03-git-local-C` | VCS-free, v26.04 streaming |
+| 4 | git · remote · A | `cell-04-git-remote-A` | Auto-clone, no --repoPath |
+| 5 | git · remote · B | (same as #2) | Patches only, no live repo |
+| 6 | git · remote · C | (same as #3) | Air-gapped, VCS-free |
+| 7 | svn · local · A | (seeded from SVN checkout) | svn blame, --repoPath |
+| 8 | svn · local · B | `cell-08-svn-local-B` | SVN patches + replay |
+| 9 | svn · local · C | (same as #3) | VCS-free |
+| 10 | svn · remote · A | (seeded from SVN checkout) | svn blame via file:// |
+| 11 | svn · remote · B | (same as #8) | SVN patches only |
+| 12 | svn · remote · C | (same as #3) | VCS-free |
 
 ## Expected Output JSON
 

@@ -885,7 +885,7 @@ Scenario: [Edge] Remote SVN with AlgB offline patches
 | US-011 | Deployment Topology (12 cells) | 5 |
 | **Total** | | **64 AC** |
 
-> Cells marked P0 must pass before release. Cells marked P1 are edge scenarios with known SVN limitations (remote SVN blame imprecision).
+> Cells marked ✅ above are verified by system tests. Cells sharing the same code path (AlgC=3,6,9,12; AlgA=1,4,7,10; AlgB=2,5,8,11) differ only in VCS and access mode — see `UserTesting/run_demo.sh` for runnable examples.
 
 ---
 
