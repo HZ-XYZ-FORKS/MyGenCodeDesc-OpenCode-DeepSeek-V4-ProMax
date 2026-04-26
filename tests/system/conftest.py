@@ -24,6 +24,35 @@ def _git(cwd: Path, *args) -> str:
     return result.stdout.strip()
 
 
+def _write_v2603(out_dir, rev_id, repo_url, repo_branch, entries):
+    code_lines = []
+    for e in entries:
+        if e["type"] == "add":
+            entry = {"genRatio": e.get("genRatio", 0), "genMethod": e.get("genMethod", "Manual")}
+            if "lineLocation" in e:
+                entry["lineLocation"] = e["lineLocation"]
+            if "lineRange" in e:
+                entry["lineRange"] = e["lineRange"]
+            code_lines.append((e.get("file", ""), entry))
+    if not code_lines:
+        return
+    from collections import OrderedDict
+    detail = OrderedDict()
+    for fn, entry in code_lines:
+        if fn not in detail:
+            detail[fn] = {"fileName": fn, "codeLines": []}
+        detail[fn]["codeLines"].append(entry)
+    (out_dir / f"{rev_id}.json").write_text(json.dumps({
+        "protocolName": "generatedTextDesc",
+        "protocolVersion": "26.03",
+        "codeAgent": "FixtureGen",
+        "SUMMARY": {"totalCodeLines": 0, "fullGeneratedCodeLines": 0, "partialGeneratedCodeLines": 0,
+                     "totalDocLines": 0, "fullGeneratedDocLines": 0, "partialGeneratedDocLines": 0},
+        "DETAIL": list(detail.values()),
+        "REPOSITORY": {"vcsType": "git", "repoURL": repo_url, "repoBranch": repo_branch, "revisionId": rev_id},
+    }, indent=2))
+
+
 def _make_gencode_v2604(rev_id: str, timestamp: str, repo_url: str, repo_branch: str, entries: list) -> dict:
     code_lines = []
     total_adds = 0
@@ -162,8 +191,10 @@ def prod_repo(tmp_path_factory):
     base = tmp_path_factory.mktemp("prod_repo")
     repo_dir = base / "repo"
     gencode_dir = base / "gencode"
+    gencode_v2603_dir = base / "gencode_v2603"
     repo_dir.mkdir()
     gencode_dir.mkdir()
+    gencode_v2603_dir.mkdir()
 
     repo_url = f"file://{repo_dir}"
     branch = "main"
@@ -198,6 +229,7 @@ def prod_repo(tmp_path_factory):
     ]
     (gencode_dir / f"{revs['C1']}.json").write_text(
         json.dumps(_make_gendesc_json_v2604(revs["C1"], c1_ts, repo_url, branch, c1_entries), indent=2))
+    _write_v2603(gencode_v2603_dir, revs["C1"], repo_url, branch, c1_entries)
 
     # C2: rename + add content — utils.py → helpers.py with content
     _git(repo_dir, "mv", "utils.py", "helpers.py")
@@ -328,9 +360,38 @@ def prod_repo(tmp_path_factory):
     else:
         revs["C12"] = revs["C12a"]
 
+    for jf in sorted(gencode_dir.glob("*.json")):
+        data = json.loads(jf.read_text())
+        v2603_detail = []
+        for df in data.get("DETAIL", []):
+            code_entries = []
+            for e in df.get("codeLines", []):
+                if e.get("changeType") == "add":
+                    entry = {"genRatio": e["genRatio"], "genMethod": e["genMethod"]}
+                    if "lineLocation" in e:
+                        entry["lineLocation"] = e["lineLocation"]
+                    if "lineRange" in e:
+                        entry["lineRange"] = e["lineRange"]
+                    code_entries.append(entry)
+            if code_entries:
+                v2603_detail.append({"fileName": df["fileName"], "codeLines": code_entries})
+        if v2603_detail:
+            repo = data.get("REPOSITORY", {})
+            (gencode_v2603_dir / jf.name).write_text(json.dumps({
+                "protocolName": "generatedTextDesc",
+                "protocolVersion": "26.03",
+                "codeAgent": "FixtureGen",
+                "SUMMARY": {"totalCodeLines": 0, "fullGeneratedCodeLines": 0, "partialGeneratedCodeLines": 0,
+                             "totalDocLines": 0, "fullGeneratedDocLines": 0, "partialGeneratedDocLines": 0},
+                "DETAIL": v2603_detail,
+                "REPOSITORY": {"vcsType": repo.get("vcsType", "git"), "repoURL": repo.get("repoURL", ""),
+                               "repoBranch": repo.get("repoBranch", ""), "revisionId": repo.get("revisionId", "")},
+            }, indent=2))
+
     return {
         "repo_dir": repo_dir,
         "gencode_dir": gencode_dir,
+        "gencode_v2603_dir": gencode_v2603_dir,
         "repo_url": repo_url,
         "branch": branch,
         "revs": revs,

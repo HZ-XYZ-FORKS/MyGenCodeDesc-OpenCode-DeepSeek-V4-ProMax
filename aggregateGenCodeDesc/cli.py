@@ -17,6 +17,7 @@ from aggregateGenCodeDesc.metrics import AllMetrics, MetricResult, compute_all_m
 from aggregateGenCodeDesc.alg_a import compute_alg_a_metrics, build_line_to_genratio_map
 from aggregateGenCodeDesc.alg_c import compute_alg_c_metrics, stream_accumulate_surviving_set
 from aggregateGenCodeDesc.blame_runner import run_git_blame_on_files, GitBlameError
+from aggregateGenCodeDesc.policies import check_clock_skew, check_duplicate_revisions
 from aggregateGenCodeDesc.models import GenCodeDescV2603, GenCodeDescV2604, ValidationError
 
 
@@ -41,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--outputDir", default="./out", help="Output directory")
     parser.add_argument("--logLevel", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--repoPath", default=None, help="Local repo path (AlgA)")
+    parser.add_argument("--endRev", default=None, help="Revision to checkout before blame (AlgA)")
     parser.add_argument("--commitPatchDir", default=None, help="Diff patch directory (AlgB)")
     parser.add_argument("--onMissing", default=None, help="Missing revision policy")
     parser.add_argument("--onDuplicate", default="reject", help="Duplicate revision policy")
@@ -76,6 +78,47 @@ def _empty_metrics() -> AllMetrics:
     )
 
 
+def _make_real_patch(repo_path, repo_branch, start_time, end_time, algorithm, scope, surviving_lines, args):
+    header = (
+        f"# aggregateGenCodeDesc cumulative patch\n"
+        f"# repoURL={args.repoUrl} repoBranch={args.repoBranch}\n"
+        f"# startTime={args.startTime} endTime={args.endTime}\n"
+        f"# algorithm={args.algorithm} scope={args.scope}\n"
+        f"# aggregate:{args.startTime}..{args.endTime}\n\n"
+    )
+    if algorithm == "A" and repo_path:
+        try:
+            rev_before = subprocess.run(
+                ["git", "log", "--before", start_time, "--format=%H", "-1", repo_branch],
+                cwd=repo_path, capture_output=True, text=True, timeout=60,
+            ).stdout.strip()
+            rev_at_end = subprocess.run(
+                ["git", "log", "--before", end_time, "--format=%H", "-1", repo_branch],
+                cwd=repo_path, capture_output=True, text=True, timeout=60,
+            ).stdout.strip()
+            if rev_before and rev_at_end:
+                diff = subprocess.run(
+                    ["git", "diff", f"{rev_before}..{rev_at_end}"],
+                    cwd=repo_path, capture_output=True, text=True, timeout=300,
+                ).stdout
+                return header + diff
+        except Exception:
+            pass
+    elif algorithm == "C" and surviving_lines:
+        lines = []
+        current_file = None
+        for sl in sorted(surviving_lines, key=lambda s: (s.file_name, s.line_location)):
+            if sl.file_name != current_file:
+                current_file = sl.file_name
+                lines.append(f"diff --git a/{current_file} b/{current_file}")
+                lines.append(f"--- a/{current_file}")
+                lines.append(f"+++ b/{current_file}")
+                lines.append(f"@@ -0,0 +1,{sum(1 for x in surviving_lines if x.file_name == current_file)} @@")
+            lines.append(f"+[genRatio={sl.gen_ratio}] line {sl.line_location}")
+        return header + "\n".join(lines)
+    return header
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -97,6 +140,190 @@ def main(argv: Optional[list] = None) -> int:
     if not records:
         logger.info("No genCodeDesc records found in directory")
         return EXIT_SUCCESS
+
+    detected_version = records[0].protocolVersion
+    alg = args.algorithm
+    if alg in ("A", "B") and detected_version != "26.03":
+        logger.error(
+            f"Algorithm {alg} requires v26.03 genCodeDesc, "
+            f"but genCodeDescDir contains v{detected_version}"
+        )
+        return EXIT_VALIDATION_ERROR
+    if alg == "C" and detected_version != "26.04":
+        logger.error(
+            f"Algorithm C requires v26.04 genCodeDesc, "
+            f"but genCodeDescDir contains v{detected_version}"
+        )
+        return EXIT_VALIDATION_ERROR
+
+    dup_revs = check_duplicate_revisions(records)
+    if dup_revs:
+        msg = f"Duplicate revisionIds detected: {dup_revs}"
+        if args.onDuplicate == "reject":
+            logger.error(msg)
+            return EXIT_VALIDATION_ERROR
+        else:
+            logger.warning(msg)
+
+    if alg == "C":
+        v2604 = sorted(
+            [r for r in records if isinstance(r, GenCodeDescV2604)],
+            key=lambda r: r.REPOSITORY.revisionTimestamp,
+        )
+        if args.onClockSkew == "abort" and check_clock_skew(v2604):
+            logger.error("Clock skew detected: revisionTimestamps are non-monotonic")
+            return EXIT_VALIDATION_ERROR
+
+    surviving_lines = []
+    gen_ratios = []
+    warnings = []
+    repo_path = None
+
+    try:
+        if alg == "C":
+            surviving_lines, warnings = stream_accumulate_surviving_set(
+                str(Path(args.genCodeDescDir)),
+                end_time=args.endTime,
+                return_warnings=True,
+            )
+            in_window = [
+                s for s in surviving_lines
+                if args.startTime <= s.blame_timestamp <= args.endTime
+            ]
+            gen_ratios = [s.gen_ratio for s in in_window]
+            metrics = compute_all_metrics(gen_ratios, args.threshold)
+
+        elif alg == "A":
+            v2603_records = [r for r in records if isinstance(r, GenCodeDescV2603)]
+            genratio_map = build_line_to_genratio_map(v2603_records)
+
+            repo_path = args.repoPath
+            cleanup_clone = None
+            if not repo_path and args.repoUrl and (
+                args.repoUrl.startswith("http://") or args.repoUrl.startswith("https://") or
+                args.repoUrl.startswith("git@") or args.repoUrl.startswith("ssh://")
+            ):
+                import tempfile
+                clone_dir = Path(tempfile.mkdtemp(prefix="aggregateGenCode_"))
+                cleanup_clone = clone_dir
+                logger.info(f"Auto-cloning {args.repoUrl} to {clone_dir}")
+                r = subprocess.run(["git", "clone", args.repoUrl, str(clone_dir)],
+                                 capture_output=True, text=True, timeout=600)
+                if r.returncode != 0:
+                    logger.error(f"Clone failed: {r.stderr.strip()}")
+                    return EXIT_RUNTIME_ERROR
+                repo_path = str(clone_dir)
+            elif not repo_path:
+                repo_path = args.repoUrl
+
+            in_scope_files = _collect_in_scope_files(records, args.scope)
+
+            rename_detection = args.renameDetection
+            ignore_whitespace = args.blameWhitespace == "ignore"
+
+            try:
+                blame_lines = run_git_blame_on_files(
+                    repo_path,
+                    in_scope_files,
+                    ignore_whitespace=ignore_whitespace,
+                    rename_detection=rename_detection,
+                )
+            except (GitBlameError, FileNotFoundError) as e:
+                logger.error(str(e))
+                return EXIT_RUNTIME_ERROR
+            finally:
+                if cleanup_clone:
+                    import shutil
+                    shutil.rmtree(cleanup_clone, ignore_errors=True)
+
+            if not blame_lines:
+                gen_ratios = []
+                metrics = _empty_metrics()
+                warnings.append(f"No in-scope files found for blame in {repo_path}")
+            else:
+                result = compute_alg_a_metrics(
+                    blame_lines=blame_lines,
+                    genratio_map=genratio_map,
+                    start_time=args.startTime,
+                    end_time=args.endTime,
+                    threshold=args.threshold,
+                )
+                metrics = result.metrics
+                warnings = []
+                gen_ratios = [l.gen_ratio for l in result.in_window_lines]
+
+        elif alg == "B":
+            v2603_records = [r for r in records if isinstance(r, GenCodeDescV2603)]
+            from aggregateGenCodeDesc.alg_b import compute_alg_b_metrics
+            from aggregateGenCodeDesc.vcs_ordering import get_git_commit_order, load_ordered_patches
+
+            repo_path = args.repoPath or args.repoUrl
+            if not args.commitPatchDir:
+                logger.error("--commitPatchDir is required for Algorithm B")
+                return EXIT_VALIDATION_ERROR
+
+            try:
+                ordered_commits = get_git_commit_order(repo_path, args.repoBranch, args.startTime, args.endTime)
+                patch_seq = load_ordered_patches(args.commitPatchDir, ordered_commits)
+                diff_seq = [(text, rev_id, "") for text, rev_id in patch_seq]
+            except Exception as e:
+                logger.error(f"Failed to load patches: {e}")
+                return EXIT_RUNTIME_ERROR
+
+            result = compute_alg_b_metrics(
+                diff_seq, v2603_records, args.startTime, args.endTime, args.threshold,
+            )
+            metrics = result.metrics
+            warnings = []
+            gen_ratios = [l.gen_ratio for l in result.in_window_lines]
+        else:
+            logger.error(f"Unknown algorithm: {args.algorithm}")
+            return EXIT_VALIDATION_ERROR
+
+    except ValidationError as e:
+        logger.error(str(e))
+        return EXIT_VALIDATION_ERROR
+    except Exception as e:
+        logger.error(f"Runtime error: {e}")
+        return EXIT_RUNTIME_ERROR
+
+    output_dir = Path(args.outputDir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    output = build_aggregate_output(
+        repo_url=args.repoUrl,
+        repo_branch=args.repoBranch,
+        start_time=args.startTime,
+        end_time=args.endTime,
+        algorithm=alg,
+        scope=args.scope,
+        threshold=args.threshold,
+        input_protocol_version=detected_version,
+        metrics=metrics,
+        warnings=warnings,
+        gen_ratios=gen_ratios,
+        detail_files=[],
+    )
+
+    json_path = output_dir / AGGREGATE_OUTPUT_FILENAME
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2)
+
+    patch_path = output_dir / PATCH_OUTPUT_FILENAME
+    patch_content = _make_real_patch(
+        repo_path, args.repoBranch, args.startTime, args.endTime,
+        alg, args.scope, surviving_lines if alg == "C" else [], args,
+    )
+    patch_path.write_text(patch_content)
+
+    logger.info(
+        f"SUMMARY aggregate totalLines={len(gen_ratios)} "
+        f"weighted={metrics.weighted.value:.1%} "
+        f"fullyAI={metrics.fully_ai.value:.1%} "
+        f"mostlyAI={metrics.mostly_ai.value:.1%}"
+    )
+
+    return EXIT_SUCCESS
 
     try:
         if args.algorithm == "C":

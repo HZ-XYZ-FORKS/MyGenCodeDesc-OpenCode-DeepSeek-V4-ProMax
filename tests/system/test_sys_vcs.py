@@ -428,7 +428,7 @@ def test_git_remote_alg_a_auto_clone(prod_repo, tmp_path):
         "--repoBranch", prod_repo["branch"],
         "--startTime", "2026-01-01T00:00:00Z",
         "--endTime", "2026-04-15T00:00:00Z",
-        "--genCodeDescDir", str(gd),
+        "--genCodeDescDir", str(prod_repo.get("gencode_v2603_dir", gd)),
         "--outputDir", str(out_dir),
         "--threshold", "60",
         "--algorithm", "A",
@@ -447,7 +447,7 @@ def test_git_remote_alg_b_offline_patches(prod_repo, tmp_path):
     import subprocess, json
 
     rd = prod_repo["repo_dir"]
-    gd = prod_repo["gencode_dir"]
+    gd = prod_repo.get("gencode_v2603_dir", prod_repo["gencode_dir"])
     patch_dir = tmp_path / "patches_b"
     patch_dir.mkdir()
     out_dir = tmp_path / "out_b"
