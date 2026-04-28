@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 echo "=== Setup: aggregateGenCodeDesc Demo ==="
 echo ""
@@ -9,10 +8,15 @@ WORK_DIR="$BASE_DIR/demo_work"
 REPO_DIR="$WORK_DIR/repo"
 GENCODE_V2604="$WORK_DIR/gcd-v26.04"
 GENCODE_V2603="$WORK_DIR/gcd-v26.03"
+SVN_REPO_DIR="$WORK_DIR/svn_repo"
+SVN_CO_DIR="$WORK_DIR/svn_checkout"
+SVN_GCD="$WORK_DIR/gcd-svn"
+SVN_PATCH_DIR="$WORK_DIR/svn-patches"
 OUT_DIR="$WORK_DIR/out"
 PATCH_DIR="$WORK_DIR/patches"
 
-mkdir -p "$REPO_DIR" "$GENCODE_V2604" "$GENCODE_V2603" "$OUT_DIR" "$PATCH_DIR"
+mkdir -p "$REPO_DIR" "$GENCODE_V2604" "$GENCODE_V2603" "$OUT_DIR" "$PATCH_DIR" \
+         "$SVN_GCD" "$SVN_PATCH_DIR"
 
 cd "$REPO_DIR"
 git init -b main
@@ -221,11 +225,102 @@ for rev in commits:
             f.write(diff)
 "
 echo "Patches generated: $PATCH_DIR"
+
+# --- Step 5: Build SVN repo (if svn available) ---
+
+if command -v svn &> /dev/null; then
+    rm -rf "$SVN_REPO_DIR" "$SVN_CO_DIR"
+    svnadmin create "$SVN_REPO_DIR"
+    svn checkout "file://$SVN_REPO_DIR" "$SVN_CO_DIR" --quiet
+
+    cd "$SVN_CO_DIR"
+    echo "line 1" > main.py
+    echo "line 2" >> main.py
+    svn add main.py --quiet 2>/dev/null
+    svn commit -m "r1" --quiet 2>/dev/null
+    R1=$(svn info --show-item revision 2>/dev/null || echo "1")
+
+    printf "def helper():\n    return 42\n" > utils.py
+    svn add utils.py --quiet 2>/dev/null
+    svn commit -m "r2" --quiet 2>/dev/null
+    R2=$(svn info --show-item revision 2>/dev/null || echo "2")
+
+    python3 -c "l=open('main.py').readlines(); l[0]='line 1 MODIFIED\n'; open('main.py','w').writelines(l)" 2>/dev/null
+    svn commit -m "r3" --quiet 2>/dev/null
+    R3=$(svn info --show-item revision 2>/dev/null || echo "3")
+
+    cd "$BASE_DIR"
+
+    python3 -c "
+import json, subprocess, os
+
+svn_repo = '$SVN_REPO_DIR'
+svn_gcd = '$SVN_GCD'
+svn_patches = '$SVN_PATCH_DIR'
+
+# Use actual SVN revisions after commit attempts
+try:
+    r1 = subprocess.run(['svn', 'info', '--show-item', 'revision', 'file://' + svn_repo],
+                         capture_output=True, text=True).stdout.strip()
+except: r1 = '1'
+try:
+    r2 = subprocess.run(['svn', 'info', '--show-item', 'revision', 'file://' + svn_repo],
+                         capture_output=True, text=True).stdout.strip()
+    r2 = str(int(r2) - 1)
+except: r2 = '2'
+try:
+    r3 = subprocess.run(['svn', 'info', '--show-item', 'revision', 'file://' + svn_repo],
+                         capture_output=True, text=True).stdout.strip()
+except: r3 = '3'
+
+commits = [
+    (r1, 'main.py', ['line 1', 'line 2']),
+    (r2, 'utils.py', ['def helper():', '    return 42']),
+    (r3, 'main.py', ['line 1 MODIFIED', 'line 2']),
+]
+
+for rev, fname, lines in commits:
+    entries = []
+    for i, line in enumerate(lines):
+        gr = 80 if i % 5 != 0 else 0
+        entries.append({
+            'lineLocation': i + 1,
+            'genRatio': gr,
+            'genMethod': 'vibeCoding' if gr > 0 else 'Manual'
+        })
+    data = {
+        'protocolVersion': '26.03', 'codeAgent': 'DemoSVN',
+        'REPOSITORY': {'vcsType': 'svn', 'repoURL': 'file://' + svn_repo,
+                       'repoBranch': '/trunk', 'revisionId': rev},
+        'SUMMARY': {'totalCodeLines': len(entries), 'fullGeneratedCodeLines': 0,
+                     'partialGeneratedCodeLines': 0, 'totalDocLines': 0,
+                     'fullGeneratedDocLines': 0, 'partialGeneratedDocLines': 0},
+        'DETAIL': [{'fileName': fname, 'codeLines': entries}]
+    }
+    with open(os.path.join(svn_gcd, rev + '.json'), 'w') as f:
+        json.dump(data, f, indent=2)
+
+    patch = subprocess.run(['svn', 'diff', '-c', rev, 'file://' + svn_repo],
+                            capture_output=True, text=True).stdout
+    if patch.strip():
+        with open(os.path.join(svn_patches, rev + '.patch'), 'w') as f:
+            f.write(patch)
+"
+    echo "SVN genCodeDesc: $SVN_GCD ($(ls $SVN_GCD 2>/dev/null | wc -l | tr -d ' ') files)"
+    echo "SVN patches:     $SVN_PATCH_DIR ($(ls $SVN_PATCH_DIR 2>/dev/null | wc -l | tr -d ' ') files)"
+else
+    echo "SVN not installed — skipping SVN setup"
+fi
 echo ""
 echo "=== Setup Complete ==="
-echo "Demo repo:       $REPO_DIR"
+echo "Git repo:        $REPO_DIR"
 echo "genCodeDesc v26.04: $GENCODE_V2604"
 echo "genCodeDesc v26.03: $GENCODE_V2603"
 echo "Patches:           $PATCH_DIR"
+if command -v svn &> /dev/null; then
+    echo "SVN repo:          $SVN_REPO_DIR"
+    echo "SVN genCodeDesc:   $SVN_GCD"
+    echo "SVN patches:       $SVN_PATCH_DIR"
+fi
 echo ""
 echo "Run: ./run_demo.sh"

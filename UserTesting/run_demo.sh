@@ -89,49 +89,25 @@ RUN "cell-02-git-local-B" \
 echo "=== SVN cells (7-12) ==="
 echo ""
 
-if command -v svn &> /dev/null; then
+if command -v svn &> /dev/null && [ -d "$WORK/svn_repo" ]; then
     SVN_REPO="$WORK/svn_repo"
     SVN_CO="$WORK/svn_checkout"
-    rm -rf "$SVN_REPO" "$SVN_CO"
-    svnadmin create "$SVN_REPO"
-    svn checkout "file://$SVN_REPO" "$SVN_CO" --quiet
-    cd "$SVN_CO"
-    echo "line 1" > main.py
-    svn add main.py --quiet && svn commit -m "r1" --quiet
-    REV=$(svn info --show-item revision)
-    printf "def h():\n    pass\n" > utils.py
-    svn add utils.py --quiet && svn commit -m "r2" --quiet
-    rev2=$(svn info --show-item revision)
-    cd "$BASE"
-
     SVN_GCD="$WORK/gcd-svn"
-    mkdir -p "$SVN_GCD"
-
-    cat > "$SVN_GCD/r1.json" << SVNEOF
-{
-    "protocolVersion": "26.03",
-    "codeAgent": "Demo",
-    "REPOSITORY": {"vcsType": "svn", "repoURL": "file://$SVN_REPO", "repoBranch": "/trunk", "revisionId": "$REV"},
-    "SUMMARY": {"totalCodeLines": 1, "fullGeneratedCodeLines": 0, "partialGeneratedCodeLines": 0, "totalDocLines": 0, "fullGeneratedDocLines": 0, "partialGeneratedDocLines": 0},
-    "DETAIL": [{"fileName": "main.py", "codeLines": [{"lineLocation": 1, "genRatio": 0, "genMethod": "Manual"}]}]
-}
-SVNEOF
-
-    cat > "$SVN_GCD/r2.json" << SVNBEOF
-{
-    "protocolVersion": "26.03",
-    "codeAgent": "Demo",
-    "REPOSITORY": {"vcsType": "svn", "repoURL": "file://$SVN_REPO", "repoBranch": "/trunk", "revisionId": "$rev2"},
-    "SUMMARY": {"totalCodeLines": 2, "fullGeneratedCodeLines": 0, "partialGeneratedCodeLines": 0, "totalDocLines": 0, "fullGeneratedDocLines": 0, "partialGeneratedDocLines": 0},
-    "DETAIL": [{"fileName": "utils.py", "codeLines": [{"lineLocation": 1, "genRatio": 80, "genMethod": "vibeCoding"}, {"lineLocation": 2, "genRatio": 80, "genMethod": "vibeCoding"}]}]
-}
-SVNBEOF
-
-    # SVN patches for AlgB
     SVN_PATCHES="$WORK/svn-patches"
-    mkdir -p "$SVN_PATCHES"
-    svn diff -c "$REV" "file://$SVN_REPO" > "$SVN_PATCHES/$REV.patch" 2>/dev/null
-    svn diff -c "$rev2" "file://$SVN_REPO" > "$SVN_PATCHES/$rev2.patch" 2>/dev/null
+
+    RUN "cell-07-svn-local-A" \
+        --repoUrl "file://$SVN_REPO" --repoBranch /trunk \
+        --startTime 2026-01-01T00:00:00Z --endTime 2026-12-31T00:00:00Z \
+        --threshold 60 --algorithm A --scope A \
+        --genCodeDescDir "$SVN_GCD" --repoPath "$SVN_CO" \
+        --outputDir "$WORK/out/cell-07-svn-local-A"
+
+    RUN "cell-10-svn-remote-A" \
+        --repoUrl "file://$SVN_REPO" --repoBranch /trunk \
+        --startTime 2026-01-01T00:00:00Z --endTime 2026-12-31T00:00:00Z \
+        --threshold 60 --algorithm A --scope A \
+        --genCodeDescDir "$SVN_GCD" --repoPath "$SVN_CO" \
+        --outputDir "$WORK/out/cell-10-svn-remote-A"
 
     RUN "cell-08-svn-local-B" \
         --repoUrl "file://$SVN_REPO" --repoBranch /trunk \
@@ -141,7 +117,7 @@ SVNBEOF
         --commitPatchDir "$SVN_PATCHES" \
         --outputDir "$WORK/out/cell-08-svn-local-B"
 else
-    echo "  SKIP: svn not installed (cells 7-12)"
+    echo "  SKIP: svn not installed or setup not run (cells 7-12)"
 fi
 
 # ==========================================
