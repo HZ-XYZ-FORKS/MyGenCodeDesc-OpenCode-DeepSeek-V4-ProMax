@@ -111,6 +111,10 @@ def run_git_blame(
     lines = parse_blame_porcelain(result.stdout)
     for l in lines:
         l.file_path = file_path
+
+    import logging
+    logging.getLogger("aggregateGenCodeDesc").info("LOAD blame file=%s lines=%d", file_path, len(lines))
+
     return lines
 
 

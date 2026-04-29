@@ -552,3 +552,44 @@ def test_svn_remote_alg_b_offline_patches(prod_repo, tmp_path):
 
     patches = load_ordered_patches(str(patch_dir), revs)
     assert len(patches) == len(revs)
+
+
+class TestLogOutput:
+    def test_info_shows_load_and_summary(self, prod_repo, capsys):
+        from aggregateGenCodeDesc.cli import main, EXIT_SUCCESS
+        main([
+            "--repoUrl", prod_repo["repo_url"], "--repoBranch", prod_repo["branch"],
+            "--startTime", "2026-01-01T00:00:00Z", "--endTime", "2026-04-15T00:00:00Z",
+            "--threshold", "60", "--algorithm", "C", "--scope", "A",
+            "--genCodeDescDir", str(prod_repo["gencode_dir"]),
+            "--outputDir", str(prod_repo["repo_dir"].parent / "out_log_test"),
+        ])
+        captured = capsys.readouterr()
+        assert "LOAD" in captured.err, f"No LOAD in: {captured.err[:200]}"
+        assert "SUMMARY aggregate" in captured.err, f"No SUMMARY in: {captured.err[:200]}"
+
+    def test_quiet_suppresses_process(self, prod_repo, capsys):
+        from aggregateGenCodeDesc.cli import main, EXIT_SUCCESS
+        main([
+            "--repoUrl", prod_repo["repo_url"], "--repoBranch", prod_repo["branch"],
+            "--startTime", "2026-01-01T00:00:00Z", "--endTime", "2026-04-15T00:00:00Z",
+            "--threshold", "60", "--algorithm", "C", "--scope", "A",
+            "--genCodeDescDir", str(prod_repo["gencode_dir"]),
+            "--outputDir", str(prod_repo["repo_dir"].parent / "out_log_quiet"),
+            "--quiet",
+        ])
+        captured = capsys.readouterr()
+        assert "PROCESS" not in captured.err, f"PROCESS leaked with --quiet: {captured.err[:200]}"
+        assert "SUMMARY aggregate" in captured.err
+
+    def test_algc_component_in_log(self, prod_repo, capsys):
+        from aggregateGenCodeDesc.cli import main, EXIT_SUCCESS
+        main([
+            "--repoUrl", prod_repo["repo_url"], "--repoBranch", prod_repo["branch"],
+            "--startTime", "2026-01-01T00:00:00Z", "--endTime", "2026-04-15T00:00:00Z",
+            "--threshold", "60", "--algorithm", "C", "--scope", "A",
+            "--genCodeDescDir", str(prod_repo["gencode_dir"]),
+            "--outputDir", str(prod_repo["repo_dir"].parent / "out_log_comp"),
+        ])
+        captured = capsys.readouterr()
+        assert "[AlgC]" in captured.err, f"No [AlgC] component: {captured.err[:200]}"

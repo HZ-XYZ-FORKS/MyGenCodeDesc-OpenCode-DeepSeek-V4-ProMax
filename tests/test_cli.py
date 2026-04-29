@@ -8,6 +8,8 @@ from aggregateGenCodeDesc.logger import (
     configure_logger,
     DEFAULT_LOG_FORMAT,
     get_logger,
+    add_quiet_filter,
+    set_component,
 )
 from aggregateGenCodeDesc.models import (
     Summary,
@@ -67,6 +69,54 @@ class TestLogger:
         configure_logger("INFO")
         logger = get_logger()
         assert logger.level == logging.INFO
+
+    def test_info_shows_load_and_summary(self, capsys):
+        logger = configure_logger("INFO")
+        logger.info("LOAD rev=abc123 entries=1500")
+        logger.info("SUMMARY aggregate totalLines=500 weighted=65.0% fullyAI=42.0% mostlyAI=71.0%")
+        captured = capsys.readouterr()
+        assert "LOAD rev=abc123 entries=1500" in captured.err
+        assert "SUMMARY aggregate totalLines=500" in captured.err
+
+    def test_quiet_filters_process(self, capsys):
+        logger = configure_logger("INFO")
+        add_quiet_filter()
+        logger.info("LOAD rev=abc123 entries=1500")
+        logger.info("PROCESS file=app.py line=1 state=ADDED", extra={"phase": "PROCESS"})
+        logger.info("SUMMARY aggregate totalLines=500")
+        captured = capsys.readouterr()
+        assert "LOAD rev=abc123 entries=1500" in captured.err
+        assert "PROCESS file=app.py" not in captured.err
+        assert "SUMMARY aggregate totalLines=500" in captured.err
+
+    def test_component_set_to_algorithm(self, capsys):
+        logger = configure_logger("INFO")
+        set_component("AlgC")
+        logger.info("start processing")
+        captured = capsys.readouterr()
+        assert "[AlgC]" in captured.err
+
+    def test_warning_suppresses_info(self, capsys):
+        logger = configure_logger("WARNING")
+        logger.info("should not appear")
+        captured = capsys.readouterr()
+        assert "should not appear" not in captured.err
+
+    def test_debug_shows_process(self, capsys):
+        logger = configure_logger("DEBUG")
+        logger.info("PROCESS file=app.py line=1 state=ADDED", extra={"phase": "PROCESS"})
+        captured = capsys.readouterr()
+        assert "PROCESS file=app.py" in captured.err
+
+    def test_summary_format_includes_all_metrics(self, capsys):
+        logger = configure_logger("INFO")
+        logger.info(
+            "SUMMARY aggregate totalLines=500 weighted=65.0% fullyAI=42.0% mostlyAI=71.0%"
+        )
+        captured = capsys.readouterr()
+        assert "weighted=65.0%" in captured.err
+        assert "fullyAI=42.0%" in captured.err
+        assert "mostlyAI=71.0%" in captured.err
 
 
 class TestOutputFilename:

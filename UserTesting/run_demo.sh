@@ -25,7 +25,7 @@ try:
     m = d['AGGREGATE']['metrics']
     print(f'  PASS  weighted={m[\"weighted\"][\"value\"]:.1%}  fullyAI={m[\"fullyAI\"][\"value\"]:.1%}  mostlyAI={m[\"mostlyAI\"][\"value\"]:.1%}')
 except: print('  PASS  (output OK)')
-" 2>/dev/null
+"
     else
         echo "  FAIL (exit $rc)"
     fi

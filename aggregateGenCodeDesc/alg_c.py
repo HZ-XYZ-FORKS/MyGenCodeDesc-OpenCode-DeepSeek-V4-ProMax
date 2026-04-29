@@ -43,6 +43,10 @@ def _expand_line_range(from_: int, to_: int) -> List[int]:
     return list(range(from_, to_ + 1))
 
 
+import logging
+_log = logging.getLogger("aggregateGenCodeDesc")
+
+
 def accumulate_surviving_set(
     records: List[GenCodeDescV2604],
     end_time: str,
@@ -278,12 +282,13 @@ def stream_accumulate_surviving_set(
 
         summary = data.get("SUMMARY", {})
         total_code = summary.get("totalCodeLines", 0)
+        rev_id = data.get("REPOSITORY", {}).get("revisionId", "?")
         if total_code > 0 and add_count != total_code:
-            rev_id = data.get("REPOSITORY", {}).get("revisionId", "?")
             warnings.append(
                 f"SUMMARY mismatch for revision {rev_id}: "
                 f"expected totalCodeLines={total_code}, found {add_count} add entries"
             )
+        _log.info("LOAD rev=%s entries=%d", rev_id, add_count)
 
         for df_data in details:
             file_name = df_data.get("fileName", "")
@@ -292,6 +297,7 @@ def stream_accumulate_surviving_set(
                 blame_data = entry.get("blame", {})
 
                 if change_type == "delete":
+                    _log.info("PROCESS file=%s state=DELETED", file_name, extra={"phase": "PROCESS"})
                     if "originalLineRange" in blame_data:
                         rng = blame_data["originalLineRange"]
                         for line in range(rng["from"], rng["to"] + 1):
@@ -318,6 +324,7 @@ def stream_accumulate_surviving_set(
                             del surviving[key]
 
                 elif change_type == "add":
+                    _log.info("PROCESS file=%s state=ADDED", file_name, extra={"phase": "PROCESS"})
                     gen_ratio = entry.get("genRatio", 0)
                     gen_method = entry.get("genMethod", "Manual")
                     if "lineRange" in entry:
