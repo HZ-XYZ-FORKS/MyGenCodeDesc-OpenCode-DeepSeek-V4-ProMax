@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "aggregateGenCodeDesc"
+version = "0.9.0"
+description = "Compute AI-generated code ratio across Git/SVN time windows using genCodeDesc protocol metadata"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = []
+authors = [
+    {name = "OpenCode + DeepSeek-V4-ProMax PlayKata", email = "enigmawu@example.com"},
+]
+keywords = ["genCodeDesc", "AI-generated-code", "code-attribution", "git-blame", "metrics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Quality Assurance",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+fast = ["orjson>=3.8"]
+test = ["pytest>=7.0", "pytest-mock>=3.0", "pytest-timeout>=2.0"]
+
+[project.scripts]
+aggregateGenCodeDesc = "aggregateGenCodeDesc.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/EnigmaWU/MyGenCodeDesc-OpenCode-DeepSeek-V4-ProMax"
+Repository = "https://github.com/EnigmaWU/MyGenCodeDesc-OpenCode-DeepSeek-V4-ProMax"
+
+[tool.setuptools]
+packages = ["aggregateGenCodeDesc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 300
+addopts = "-v --tb=short"

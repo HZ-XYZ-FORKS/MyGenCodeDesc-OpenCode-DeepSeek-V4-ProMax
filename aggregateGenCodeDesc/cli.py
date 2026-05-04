@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--blameWhitespace", default="respect", choices=["respect", "ignore"])
     parser.add_argument("--renameDetection", default="basic", choices=["off", "basic", "aggressive"])
     parser.add_argument("--quiet", action="store_true", help="Suppress per-line PROCESS output")
+    parser.add_argument("--version", action="version", version="aggregateGenCodeDesc 0.9.0")
     return parser
 
 
