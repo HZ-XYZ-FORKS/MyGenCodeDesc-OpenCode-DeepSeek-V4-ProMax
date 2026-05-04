@@ -908,8 +908,7 @@ Scenario: [Edge] Remote SVN with AlgB offline patches
 
 ### Coverage Scope
 
-The ACs are written **Git-first**. Git is the modern standard and the primary target.
-SVN is legacy — supported to the extent that the protocol allows, but with known limitations.
+The ACs support both **Git and SVN as first-class VCS citizens**. Git-specific features (rebase, amend, shallow clone) have dedicated ACs. SVN-specific behaviors (numeric revisionId, path-based branching, immutable history, mergeinfo imprecision) are covered with known limitations where the VCS itself does not support a feature.
 
 ### VCS Coverage Per AC
 

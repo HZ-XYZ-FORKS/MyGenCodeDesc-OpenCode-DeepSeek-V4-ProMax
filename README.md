@@ -182,7 +182,7 @@ Reference scale: **1K commits × 100 files/commit × 10K lines/file add-or-delet
 | **Protocols** | v26.03 + v26.04 |
 | **Algorithms** | A, B, C (all three) |
 | **Scopes** | A, B, C, D (all four) |
-| **VCS** | Git (primary), SVN (where applicable) |
+| **VCS** | Git + SVN (both first-class) |
 | **CLI** | Mandatory lower-camel-case arguments per UserGuide §2 |
 
 ### Development Method
