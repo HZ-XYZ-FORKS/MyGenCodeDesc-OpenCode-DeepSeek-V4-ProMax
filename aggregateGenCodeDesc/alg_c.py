@@ -249,8 +249,10 @@ def stream_accumulate_surviving_set(
 
     file_info.sort(key=lambda x: x[0])
 
+    total_files = len(file_info)
     surviving: Dict[str, SurvivingLine] = {}
     position_index: Dict[str, str] = {}
+    file_idx = 0
 
     for ts, jf in file_info:
         if ts > end_time:
@@ -288,7 +290,8 @@ def stream_accumulate_surviving_set(
                 f"SUMMARY mismatch for revision {rev_id}: "
                 f"expected totalCodeLines={total_code}, found {add_count} add entries"
             )
-        _log.info("LOAD rev=%s entries=%d", rev_id, add_count)
+        _log.info("LOAD [%d/%d] rev=%s entries=%d", file_idx + 1, total_files, rev_id, add_count)
+        file_idx += 1
 
         for df_data in details:
             file_name = df_data.get("fileName", "")

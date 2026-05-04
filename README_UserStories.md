@@ -782,102 +782,74 @@ Scenario: [Testability] Unit tests can set log level programmatically
 | US-009 | Algorithm-Specific Behavior | 9 | Typical, Edge, Fault |
 | US-010 | Diagnostics and Logging | 7 | Typical, Edge, Observability, Testability |
 | US-011 | Deployment Topology (12 cells) | 5 | Typical, Edge |
-| **Total** | | **64 AC** | |
+| US-012 | Output Validation | 5 | Typical, Edge |
+| **Total** | | **69 AC** | |
 
 ---
 
-## US-011: Deployment Topology — 12 VCS × Access × Algorithm Cells
+## US-012: Output Validation
 
 AS A codebase maintainer,
-I WANT `aggregateGenCodeDesc` to run correctly in every deployment scenario defined in the UserGuide,
-SO THAT the tool works across local/remote repos, Git/SVN VCS, and all three algorithms.
+I WANT the aggregate output to be structurally valid and self-identifying,
+SO THAT downstream consumers can parse results without ambiguity.
 
-### Context
-
-The [UserGuide](README_UserGuide.md) §4 defines 12 deployment cells on axes:
-**VCS** = `git` | `svn` · **Access** = `local` | `remote` · **Algorithm** = `A` | `B` | `C`.
-
-Each cell represents a distinct runtime topology. Cells 3, 6, 9, 12 (AlgC) are VCS-free and share the same code path.
-The remaining 8 cells require distinct VCS-specific integration.
-
-### Coverage Matrix
-
-| # | Cell | Status | Priority |
-|---|------|:---:|----------|
-| 1 | git · local · A | ✅ | — |
-| 2 | git · local · B | ✅ | — |
-| 3 | git · local · C | ✅ | — |
-| 4 | git · remote · A | ✅ | — |
-| 5 | git · remote · B | ✅ | — |
-| 6 | git · remote · C | ✅ | — |
-| 7 | svn · local · A | ✅ | — |
-| 8 | svn · local · B | ✅ | — |
-| 9 | svn · local · C | ✅ | — |
-| 10 | svn · remote · A | ✅ | — |
-| 11 | svn · remote · B | ✅ | — |
-| 12 | svn · remote · C | ✅ | — |
-
-### AC-011-1: [Typical] git · remote · A — auto-clone remote then blame
+### AC-012-1: [Typical] Output JSON matches v26.03 protocol shape
 
 ```gherkin
-Scenario: [Typical] Remote Git repo with AlgA
-  GIVEN a remote Git repository URL (https:// or git@)
-  AND --algorithm A --repoPath is not provided
+Scenario: [Typical] Aggregate output conforms to genCodeDescProtoV26.03
+  GIVEN aggregateGenCodeDesc runs successfully
+  WHEN the output genCodeDescV26.03.json is produced
+  THEN it contains protocolName="generatedTextDesc"
+  AND protocolVersion="26.03"
+  AND AGGREGATE.window has {startTime, endTime}
+  AND AGGREGATE.parameters has {algorithm, scope, threshold, inputProtocolVersion}
+  AND AGGREGATE.metrics has {weighted, fullyAI, mostlyAI}
+  AND AGGREGATE.diagnostics has {missingRevisions, duplicateRevisions, clockSkewDetected, warnings}
+```
+
+### AC-012-2: [Typical] commitStart2EndTime.patch has header block
+
+```gherkin
+Scenario: [Typical] Patch file begins with identifying header
+  GIVEN aggregateGenCodeDesc runs successfully
+  WHEN the output commitStart2EndTime.patch is produced
+  THEN the file begins with a comment block identifying:
+    repoURL, repoBranch, startTime, endTime, algorithm, scope,
+    and the synthetic aggregate:<start>..<end> id
+```
+
+### AC-012-3: [Edge] Metrics are consistent with SUMMARY totals
+
+```gherkin
+Scenario: [Edge] Weighted numerator + denom matches per-line sum
+  GIVEN aggregateGenCodeDesc processes in-window lines
+  WHEN the AGGREGATE.metrics.weighted numerator is compared to SUMMARY totals
+  THEN totalCodeLines equals the number of in-window live lines
+  AND fullGeneratedCodeLines + partialGeneratedCodeLines <= totalCodeLines
+  AND fullyAI.numerator equals fullGeneratedCodeLines
+```
+
+### AC-012-4: [Edge] --scope filters out non-matching files
+
+```gherkin
+Scenario: [Edge] Scope A excludes documentation files
+  GIVEN --scope A is specified
+  AND the repository contains both .py and .md files
+  WHEN aggregateGenCodeDesc computes metrics
+  THEN only .py files contribute to totalCodeLines
+  AND doc files with .md extension are excluded from SUMMARY
+```
+
+### AC-012-5: [Edge] --scope with zero matching files returns 0.0%
+
+```gherkin
+Scenario: [Edge] All files excluded by scope filter
+  GIVEN --scope C (documentation only) is specified
+  AND the repository contains only .py source files
   WHEN aggregateGenCodeDesc runs
-  THEN the tool auto-clones the remote to a temp directory
-  AND runs git blame on the cloned working copy
-  AND computes metrics correctly
+  THEN the result is 0.0% for all modes
+  AND the tool completes without error
 ```
-
-### AC-011-2: [Typical] git · remote · B — patches + VCS ordering, no live repo
-
-```gherkin
-Scenario: [Typical] Remote Git repo with AlgB and commitPatchDir
-  GIVEN --commitPatchDir with per-revision .patch files
-  AND --algorithm B
-  AND no live repository access (--repoPath not needed)
-  WHEN aggregateGenCodeDesc runs
-  THEN commits are ordered via git log --topo-order
-  AND patches are replayed in correct topological sequence
-  AND the final line-to-origin mapping matches the live state at endTime
-```
-
-### AC-011-3: [Typical] svn · local · B — SVN diff replay with ascending revision order
-
-```gherkin
-Scenario: [Typical] Local SVN repo with AlgB
-  GIVEN an SVN working copy at --repoPath
-  AND --commitPatchDir with per-revision .patch files named by SVN revision number
-  AND --algorithm B
-  WHEN aggregateGenCodeDesc runs
-  THEN patches are ordered by ascending SVN revision number
-  AND every patch is replayed to build the surviving-line set
-```
-
-### AC-011-4: [Edge] svn · remote · A — svn blame via remote URL
-
-```gherkin
-Scenario: [Edge] Remote SVN with AlgA
-  GIVEN an SVN repository URL (svn:// or https://)
-  AND --algorithm A
-  WHEN aggregateGenCodeDesc runs svn blame
-  THEN the tool runs svn blame against the remote URL
-  AND the fork documents known SVN merge blame imprecision
-```
-
-### AC-011-5: [Edge] svn · remote · B — offline SVN patches, no VCS access
-
-```gherkin
-Scenario: [Edge] Remote SVN with AlgB offline patches
-  GIVEN --commitPatchDir with pre-exported svn diff patches
-  AND --algorithm B
-  AND no SVN server access at runtime
-  WHEN aggregateGenCodeDesc runs
-  THEN patches are processed by ascending revision number
-  AND metrics are computed correctly
-```
-
-> Cells marked ✅ above are verified by system tests. Cells sharing the same code path (AlgC=3,6,9,12; AlgA=1,4,7,10; AlgB=2,5,8,11) differ only in VCS and access mode — see `UserTesting/run_demo.sh` for runnable examples.
 
 ---
 
@@ -888,7 +860,8 @@ Scenario: [Edge] Remote SVN with AlgB offline patches
 3. **RED** — write a failing test from the GIVEN/WHEN/THEN scenario.
 4. **GREEN** — implement minimal code to pass.
 5. **REFACTOR** — clean up.
-6. When all 64 ACs pass → your implementation is correct per the BASE specification.
+6. When all 69 ACs pass → your implementation is correct per the BASE specification.
+7. Run `UserTesting/setup_demo.sh && UserTesting/run_demo.sh` to validate the 12-cell deployment matrix.
 
 > **Not every AC applies to every fork.** Git-only conditions (rebase, amend, shallow clone)
 > can be skipped by SVN forks. AlgC-specific ACs can be skipped by AlgA-only forks.

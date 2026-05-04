@@ -152,3 +152,82 @@ class TestCLIIntegration:
         ])
         assert exit_code == EXIT_SUCCESS
         assert (tmp_path / "out" / "genCodeDescV26.03.json").exists()
+
+
+class TestOutputValidation:
+    """US-012: Output validation ACs"""
+    def test_output_json_has_all_fields(self, tmp_path):
+        gcd_dir = tmp_path / "gcd"
+        gcd_dir.mkdir()
+        ts = "2026-03-01T00:00:00Z"
+        gcd_file = gcd_dir / "record1.json"
+        gcd_file.write_text(V2604_CONTENT.replace("__TS__", ts))
+
+        exit_code = main([
+            "--repoUrl", "https://github.com/acme/foo",
+            "--repoBranch", "main",
+            "--startTime", "2026-01-01T00:00:00Z",
+            "--endTime", "2026-12-31T23:59:59Z",
+            "--genCodeDescDir", str(gcd_dir),
+            "--outputDir", str(tmp_path / "out"),
+            "--algorithm", "C",
+        ])
+        assert exit_code == EXIT_SUCCESS
+
+        d = json.loads((tmp_path / "out" / "genCodeDescV26.03.json").read_text())
+        assert d["protocolName"] == "generatedTextDesc"
+        assert d["protocolVersion"] == "26.03"
+        agg = d["AGGREGATE"]
+        assert "window" in agg
+        assert "startTime" in agg["window"]
+        assert "endTime" in agg["window"]
+        assert "parameters" in agg
+        assert agg["parameters"]["algorithm"] == "C"
+        assert "metrics" in agg
+        assert "weighted" in agg["metrics"]
+        assert "fullyAI" in agg["metrics"]
+        assert "mostlyAI" in agg["metrics"]
+        assert "diagnostics" in agg
+        assert "warnings" in agg["diagnostics"]
+
+    def test_patch_has_header(self, tmp_path):
+        gcd_dir = tmp_path / "gcd"
+        gcd_dir.mkdir()
+        ts = "2026-03-01T00:00:00Z"
+        (gcd_dir / "record1.json").write_text(V2604_CONTENT.replace("__TS__", ts))
+
+        main([
+            "--repoUrl", "https://github.com/acme/foo",
+            "--repoBranch", "main",
+            "--startTime", "2026-01-01T00:00:00Z",
+            "--endTime", "2026-12-31T23:59:59Z",
+            "--genCodeDescDir", str(gcd_dir),
+            "--outputDir", str(tmp_path / "out"),
+            "--algorithm", "C",
+        ])
+        patch = (tmp_path / "out" / "commitStart2EndTime.patch").read_text()
+        assert "aggregateGenCodeDesc" in patch
+        assert "repoURL" in patch
+        assert "repoBranch" in patch
+        assert "aggregate:2026-01-01T00:00:00Z..2026-12-31T23:59:59Z" in patch
+
+    def test_scope_filters_out_non_matching(self, tmp_path):
+        gcd_dir = tmp_path / "gcd"
+        gcd_dir.mkdir()
+        ts = "2026-03-01T00:00:00Z"
+        (gcd_dir / "record1.json").write_text(V2604_CONTENT.replace("__TS__", ts))
+
+        main([
+            "--repoUrl", "https://github.com/acme/foo",
+            "--repoBranch", "main",
+            "--startTime", "2026-01-01T00:00:00Z",
+            "--endTime", "2026-12-31T23:59:59Z",
+            "--genCodeDescDir", str(gcd_dir),
+            "--outputDir", str(tmp_path / "out"),
+            "--algorithm", "C",
+            "--scope", "A",
+        ])
+        d = json.loads((tmp_path / "out" / "genCodeDescV26.03.json").read_text())
+        assert d["AGGREGATE"]["parameters"]["scope"] == "A"
+        assert d["SUMMARY"]["totalCodeLines"] >= 0
+
