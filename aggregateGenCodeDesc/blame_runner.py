@@ -153,7 +153,6 @@ def parse_svn_blame(output: str) -> List[BlameLine]:
         try:
             rev_part = stripped[:8].strip()
             revision = str(int(rev_part))
-            rest = stripped[8:]
             result.append(BlameLine(
                 blame=f"{revision}",
                 origin_revision=revision,
@@ -164,6 +163,23 @@ def parse_svn_blame(output: str) -> List[BlameLine]:
         except (ValueError, IndexError):
             continue
     return result
+
+
+def _resolve_svn_timestamps(repo_url: str, revisions: set) -> dict:
+    timestamps = {}
+    for rev in sorted(revisions):
+        try:
+            log = subprocess.run(
+                ["svn", "log", "-r", str(rev), "--xml", repo_url],
+                capture_output=True, text=True, timeout=60,
+            )
+            if log.returncode == 0 and "<date>" in log.stdout:
+                date_str = log.stdout.split("<date>")[1].split("</date>")[0]
+                dt = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+                timestamps[rev] = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
+    return timestamps
 
 
 def run_svn_blame(
@@ -190,4 +206,14 @@ def run_svn_blame(
     lines = parse_svn_blame(result.stdout)
     for l in lines:
         l.file_path = file_path
+
+    revisions = {l.origin_revision for l in lines}
+    timestamps = _resolve_svn_timestamps(repo_url, revisions)
+    for l in lines:
+        if l.origin_revision in timestamps:
+            l.origin_timestamp = timestamps[l.origin_revision]
+
+    import logging
+    logging.getLogger("aggregateGenCodeDesc").info("LOAD blame file=%s lines=%d", file_path, len(lines))
+
     return lines
