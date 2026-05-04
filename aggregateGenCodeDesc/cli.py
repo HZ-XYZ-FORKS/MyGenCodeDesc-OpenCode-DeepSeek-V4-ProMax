@@ -339,6 +339,19 @@ def main(argv: Optional[list] = None) -> int:
     )
     patch_path.write_text(patch_content)
 
+    per_file = {}
+    for sl in (surviving_lines if alg == "C" else []):
+        if sl.file_name not in per_file:
+            per_file[sl.file_name] = []
+        per_file[sl.file_name].append(sl.gen_ratio)
+    for fname, ratios in sorted(per_file.items()):
+        if not ratios: continue
+        fm = compute_all_metrics(ratios, args.threshold)
+        logger.info(
+            f"SUMMARY file=%s totalLines=%d weighted=%.1f%% fullyAI=%.1f%% mostlyAI=%.1f%%",
+            fname, len(ratios), fm.weighted.value * 100, fm.fully_ai.value * 100, fm.mostly_ai.value * 100,
+        )
+
     logger.info(
         f"SUMMARY aggregate totalLines={len(gen_ratios)} "
         f"weighted={metrics.weighted.value:.1%} "

@@ -877,14 +877,6 @@ Scenario: [Edge] Remote SVN with AlgB offline patches
   AND metrics are computed correctly
 ```
 
-### Updated AC Count
-
-| US | Title | AC Count |
-|----|-------|----------|
-| US-001 ~ US-010 | Previous | 59 |
-| US-011 | Deployment Topology (12 cells) | 5 |
-| **Total** | | **64 AC** |
-
 > Cells marked ✅ above are verified by system tests. Cells sharing the same code path (AlgC=3,6,9,12; AlgA=1,4,7,10; AlgB=2,5,8,11) differ only in VCS and access mode — see `UserTesting/run_demo.sh` for runnable examples.
 
 ---
@@ -967,7 +959,7 @@ The ACs support both **Git and SVN as first-class VCS citizens**. Git-specific f
 | **AC-009-8 (duplicate add)** | ❌ N/A | ❌ N/A | ✅ |
 | **AC-009-9 (SUMMARY mismatch)** | ❌ N/A | ❌ N/A | ✅ |
 
-> **For SVN forks:** Skip all ❌ N/A rows. Document ⚠️ rows as known limitations in your fork README.
+> **For SVN forks:** ❌ N/A rows indicate features that do not exist in SVN (rebase, amend, shallow clone, clock skew). These should be skipped without error. ⚠️ rows document known VCS limitations (mergeinfo imprecision, no `-w` for whitespace). Both Git and SVN are first-class VCS citizens for this tool.
 >
 > **For single-algorithm forks:** Implement only the ACs for your chosen algorithm.
 > A fork that only implements AlgA can skip AlgC-specific ACs (AC-008-2, AC-006-4).

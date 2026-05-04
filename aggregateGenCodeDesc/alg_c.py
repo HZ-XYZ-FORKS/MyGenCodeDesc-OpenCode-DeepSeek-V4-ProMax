@@ -297,7 +297,10 @@ def stream_accumulate_surviving_set(
                 blame_data = entry.get("blame", {})
 
                 if change_type == "delete":
-                    _log.info("PROCESS file=%s state=DELETED", file_name, extra={"phase": "PROCESS"})
+                    _log.info("PROCESS file=%s line=%s state=DELETED origin=%s",
+                              file_name, blame_data.get("originalLine", "?"),
+                              blame_data.get("revisionId", "?"),
+                              extra={"phase": "PROCESS"})
                     if "originalLineRange" in blame_data:
                         rng = blame_data["originalLineRange"]
                         for line in range(rng["from"], rng["to"] + 1):
@@ -324,7 +327,12 @@ def stream_accumulate_surviving_set(
                             del surviving[key]
 
                 elif change_type == "add":
-                    _log.info("PROCESS file=%s state=ADDED", file_name, extra={"phase": "PROCESS"})
+                    _log.info("PROCESS file=%s line=%s state=ADDED origin=%s genRatio=%s",
+                              file_name,
+                              entry.get("lineLocation", entry.get("lineRange", {}).get("from", "?")),
+                              blame_data.get("revisionId", "?"),
+                              entry.get("genRatio", 0),
+                              extra={"phase": "PROCESS"})
                     gen_ratio = entry.get("genRatio", 0)
                     gen_method = entry.get("genMethod", "Manual")
                     if "lineRange" in entry:
