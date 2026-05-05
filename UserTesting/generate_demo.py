@@ -61,8 +61,41 @@ def next_ts(add_hours=0, add_days=0):
 def pick_dev():
     return random.choice(DEVS)
 
+def save_file_blame(fname):
+    p = REPO / fname
+    if not p.exists():
+        return {}
+    try:
+        output = subprocess.run(
+            ["git", "blame", "--porcelain", "--", fname],
+            cwd=str(REPO), capture_output=True, text=True, timeout=60,
+        ).stdout
+    except Exception:
+        return {}
+    result = {}
+    current = None
+    for line in output.split("\n"):
+        parts = line.split()
+        if len(parts) >= 3 and len(parts[0]) >= 7 and all(c in "0123456789abcdef" for c in parts[0]):
+            try:
+                fl = int(parts[2])
+                current = {"rev": parts[0], "file": fname, "line": int(parts[1])}
+                result[fl] = current
+            except (ValueError, IndexError):
+                pass
+        elif line.startswith("filename ") and current is not None:
+            current["orig_file"] = line[9:].strip()
+    return result
+
+
 def commit_git(msg, files_to_modify, date_str):
     dev = pick_dev()
+
+    old_blame = {}
+    for fname in files_to_modify:
+        if fname.endswith(".py"):
+            old_blame[fname] = save_file_blame(fname)
+
     env = os.environ.copy()
     env["GIT_AUTHOR_NAME"] = dev["name"]
     env["GIT_AUTHOR_EMAIL"] = dev["email"]
@@ -77,7 +110,7 @@ def commit_git(msg, files_to_modify, date_str):
     subprocess.run(["git", "add", "-A"], cwd=str(REPO), capture_output=True, text=True, env=env)
     subprocess.run(["git", "commit", "-m", msg], cwd=str(REPO), capture_output=True, text=True, env=env)
     rev = git("rev-parse", "HEAD")
-    return rev, dev, files_to_modify
+    return rev, dev, files_to_modify, old_blame
 
 def gen_ratio(n_lines, ai_pct, gen_method="vibeCoding"):
     ratios = []
@@ -94,7 +127,9 @@ def read_file_lines(fname):
         return []
     return p.read_text().split("\n")
 
-def build_gendesc(rev, ts, commit_files, dev):
+def build_gendesc(rev, ts, commit_files, dev, old_blame=None):
+    if old_blame is None:
+        old_blame = {}
     detail_v4 = []
     detail_v3 = []
     total_adds = 0
@@ -103,23 +138,37 @@ def build_gendesc(rev, ts, commit_files, dev):
         if not fname.endswith(".py"):
             continue
         after_lines = read_file_lines(fname)
+        prev = old_blame.get(fname, {})
+        ratios = gen_ratio(len(after_lines), dev["ai_ratio"])
 
         entries = []
-        ratios = gen_ratio(len(after_lines), dev["ai_ratio"])
         for i, line in enumerate(after_lines):
-            # Conservatively emit add entries for each line in modified files
-            gr = ratios[i] if i < len(ratios) else 0
-            entries.append({
-                "changeType": "add",
-                "lineLocation": i + 1,
-                "genRatio": gr,
-                "genMethod": "vibeCoding" if gr >= 70 else ("codeCompletion" if gr > 0 else "Manual"),
-                "blame": {
-                    "revisionId": rev, "originalFilePath": fname,
-                    "originalLine": i + 1, "timestamp": ts,
-                },
-            })
-            total_adds += 1
+            ln = i + 1
+            old_info = prev.get(ln, {})
+            old_rev = old_info.get("rev")
+            old_orig_file = old_info.get("orig_file", fname)
+            old_orig_line = old_info.get("line", ln)
+
+            is_new = old_rev is None or old_rev != rev
+
+            if old_rev and is_new:
+                entries.append({
+                    "changeType": "delete",
+                    "blame": {"revisionId": old_rev, "originalFilePath": old_orig_file, "originalLine": old_orig_line},
+                })
+            if is_new:
+                gr = ratios[i] if i < len(ratios) else 0
+                entries.append({
+                    "changeType": "add",
+                    "lineLocation": ln,
+                    "genRatio": gr,
+                    "genMethod": "vibeCoding" if gr >= 70 else ("codeCompletion" if gr > 0 else "Manual"),
+                    "blame": {
+                        "revisionId": rev, "originalFilePath": fname,
+                        "originalLine": ln, "timestamp": ts,
+                    },
+                })
+                total_adds += 1
 
         if entries:
             detail_v4.append({"fileName": fname, "codeLines": entries})
@@ -175,63 +224,63 @@ def build_demo_repo():
     ts = next_ts()
 
     # C1: Initial project structure by dev0 (85% AI)
-    rev, dev, files = commit_git("C1: scaffold project structure — AC: project init", {
+    rev, dev, files, old_blame = commit_git("C1: scaffold project structure — AC: project init", {
         "config.py": "DEBUG = True\nDATABASE_URL = 'sqlite:///:memory:'\nSECRET_KEY = 'dev-key'\nAPI_VERSION = 'v1'\n",
         "main.py": "from config import DEBUG, API_VERSION\nfrom handlers import router\n\napp = None\n\ndef create_app():\n    global app\n    # Initialize application\n    pass\n\ndef run():\n    create_app()\n    # Start server\n    pass\n\nif __name__ == '__main__':\n    run()\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C2: Add utils and DB layer by dev1 (80% AI)
     ts = next_ts()
-    rev, dev, files = commit_git("C2: add utility functions and DB layer", {
+    rev, dev, files, old_blame = commit_git("C2: add utility functions and DB layer", {
         "utils.py": "import hashlib\nimport json\nfrom datetime import datetime\n\ndef hash_password(pw: str) -> str:\n    return hashlib.sha256(pw.encode()).hexdigest()\n\ndef to_json(data: dict) -> str:\n    return json.dumps(data, default=str)\n\ndef now() -> str:\n    return datetime.utcnow().isoformat()\n\ndef validate_email(email: str) -> bool:\n    return '@' in email and '.' in email.split('@')[-1]\n",
         "db.py": "from config import DATABASE_URL\n\n_connection = None\n\ndef connect():\n    global _connection\n    # Connect to database\n    pass\n\ndef execute(sql: str, params=None):\n    # Execute SQL statement\n    pass\n\ndef query(sql: str, params=None):\n    # Query and return results\n    return []\n\ndef transaction():\n    # Begin transaction\n    pass\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C3: Auth module by dev2 (75% AI)
     ts = next_ts()
-    rev, dev, files = commit_git("C3: add authentication module", {
+    rev, dev, files, old_blame = commit_git("C3: add authentication module", {
         "auth.py": "from utils import hash_password, validate_email\n\n_users = {}\n\nclass AuthError(Exception):\n    pass\n\ndef register(email: str, password: str):\n    if not validate_email(email):\n        raise AuthError('Invalid email')\n    if email in _users:\n        raise AuthError('User exists')\n    _users[email] = hash_password(password)\n    return True\n\ndef login(email: str, password: str) -> bool:\n    stored = _users.get(email)\n    if not stored:\n        return False\n    return stored == hash_password(password)\n\ndef get_user(email: str):\n    return {'email': email} if email in _users else None\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C4: Models by dev0 (85% AI)
     ts = next_ts()
-    rev, dev, files = commit_git("C4: add data models", {
+    rev, dev, files, old_blame = commit_git("C4: add data models", {
         "models.py": "from datetime import datetime\nfrom utils import now\n\nclass BaseModel:\n    def __init__(self):\n        self.id = None\n        self.created_at = now()\n        self.updated_at = now()\n\n    def to_dict(self) -> dict:\n        return {\n            'id': self.id,\n            'created_at': self.created_at,\n            'updated_at': self.updated_at,\n        }\n\nclass User(BaseModel):\n    def __init__(self, email: str, name: str = ''):\n        super().__init__()\n        self.email = email\n        self.name = name\n\n    def to_dict(self) -> dict:\n        d = super().to_dict()\n        d.update({'email': self.email, 'name': self.name})\n        return d\n\nclass Post(BaseModel):\n    def __init__(self, title: str, content: str, author_email: str):\n        super().__init__()\n        self.title = title\n        self.content = content\n        self.author_email = author_email\n\n    def to_dict(self) -> dict:\n        d = super().to_dict()\n        d.update({'title': self.title, 'content': self.content, 'author_email': self.author_email})\n        return d\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # ====== Week 2: Feature development (mixed AI-human) ======
 
     # C5: Handlers by dev3 (70% AI)
     ts = next_ts()
-    rev, dev, files = commit_git("C5: add request handlers", {
+    rev, dev, files, old_blame = commit_git("C5: add request handlers", {
         "handlers.py": "from models import User, Post\nfrom auth import register, login, get_user\nfrom db import execute, query\nfrom utils import to_json\n\ndef handle_register(email: str, password: str):\n    try:\n        register(email, password)\n        return to_json({'status': 'ok', 'message': 'User registered'})\n    except Exception as e:\n        return to_json({'status': 'error', 'message': str(e)})\n\ndef handle_login(email: str, password: str):\n    if login(email, password):\n        return to_json({'status': 'ok', 'token': 'session-token'})\n    return to_json({'status': 'error', 'message': 'Invalid credentials'})\n\ndef handle_create_post(author_email: str, title: str, content: str):\n    if not get_user(author_email):\n        return to_json({'status': 'error', 'message': 'User not found'})\n    post = Post(title, content, author_email)\n    return to_json({'status': 'ok', 'post': post.to_dict()})\n\ndef handle_list_posts():\n    posts = query('SELECT * FROM posts')\n    return to_json({'status': 'ok', 'posts': posts})\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C6: Dev4 (50% AI) refines config + adds env support
     ts = next_ts()
-    rev, dev, files = commit_git("C6: add environment config and validation", {
+    rev, dev, files, old_blame = commit_git("C6: add environment config and validation", {
         "config.py": "import os\n\nDEBUG = os.getenv('DEBUG', 'false').lower() == 'true'\nDATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///:memory:')\nSECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-change-me')\nAPI_VERSION = 'v1'\nMAX_POSTS_PER_PAGE = int(os.getenv('MAX_POSTS_PER_PAGE', '20'))\nSESSION_TIMEOUT = int(os.getenv('SESSION_TIMEOUT', '3600'))\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C7: Dev7 (15% AI) fixes a bug in auth — human review
     ts = next_ts()
-    rev, dev, files = commit_git("C7: fix auth — hash comparison timing-safe", {
+    rev, dev, files, old_blame = commit_git("C7: fix auth — hash comparison timing-safe", {
         "auth.py": open(str(REPO / "auth.py")).read().replace(
             "return stored == hash_password(password)",
             "import hmac\n    return hmac.compare_digest(stored, hash_password(password))"
         ),
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C8: Dev1 (80% AI) adds pagination to handlers
     ts = next_ts()
-    rev, dev, files = commit_git("C8: add pagination support to handlers", {
+    rev, dev, files, old_blame = commit_git("C8: add pagination support to handlers", {
         "handlers.py": open(str(REPO / "handlers.py")).read().replace(
             "def handle_list_posts():",
             "def handle_list_posts(page: int = 1):"
@@ -243,17 +292,17 @@ def build_demo_repo():
             "'posts': posts, 'page': page}"
         ),
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # ====== Week 3: Bug fixes + refinement ======
 
     # C9: Feature branch — add password reset
     git("checkout", "-b", "feature-password-reset")
     ts = next_ts()
-    rev, dev, files = commit_git("C9: add password reset feature (feature branch)", {
+    rev, dev, files, old_blame = commit_git("C9: add password reset feature (feature branch)", {
         "auth.py": open(str(REPO / "auth.py")).read() + "\n\ndef reset_password(email: str, new_password: str):\n    if not get_user(email):\n        raise AuthError('User not found')\n    _users[email] = hash_password(new_password)\n    return True\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C10: Merge feature branch
     git("checkout", "main")
@@ -269,14 +318,14 @@ def build_demo_repo():
     # C11: Dev8 (10% AI) adds manual test
     ts = next_ts()
     (REPO / "tests").mkdir(exist_ok=True)
-    rev, dev, files = commit_git("C11: add manual test for auth module", {
+    rev, dev, files, old_blame = commit_git("C11: add manual test for auth module", {
         "tests/test_auth.py": "from auth import register, login, get_user, AuthError\n\ndef test_register_success():\n    assert register('test@example.com', 'password123')\n\ndef test_register_duplicate():\n    try:\n        register('test@example.com', 'password123')\n        assert False, 'Should raise'\n    except AuthError:\n        pass\n\ndef test_login_success():\n    register('login@test.com', 'pass')\n    assert login('login@test.com', 'pass')\n\ndef test_login_wrong_password():\n    register('login2@test.com', 'pass')\n    assert not login('login2@test.com', 'wrong')\n\ndef test_get_user():\n    register('user@test.com', 'pass')\n    u = get_user('user@test.com')\n    assert u is not None\n    assert u['email'] == 'user@test.com'\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C12: Dev2 (75% AI) rewrites auth to use database
     ts = next_ts()
-    rev, dev, files = commit_git("C12: refactor auth to use database layer — AC: ownership transfer AI→human→AI", {
+    rev, dev, files, old_blame = commit_git("C12: refactor auth to use database layer — AC: ownership transfer AI→human→AI", {
         "auth.py": open(str(REPO / "auth.py")).read().replace(
             "_users = {}\n",
             "from db import execute, query\n\ndef _get_stored_hash(email: str) -> str:\n    rows = query('SELECT password_hash FROM users WHERE email = ?', [email])\n    return rows[0][0] if rows else None\n\ndef _store_user(email: str, pw_hash: str):\n    execute('INSERT INTO users (email, password_hash) VALUES (?, ?)', [email, pw_hash])\n"
@@ -288,34 +337,34 @@ def build_demo_repo():
         ).replace("return _users.get(email)", "return _get_stored_hash(email)"
         ),
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C13: Dev9 (5% AI) cleans up db.py
     ts = next_ts()
-    rev, dev, files = commit_git("C13: add connection pool and error handling to db", {
+    rev, dev, files, old_blame = commit_git("C13: add connection pool and error handling to db", {
         "db.py": open(str(REPO / "db.py")).read() + "\n\nclass DatabaseError(Exception):\n    pass\n\nclass ConnectionPool:\n    def __init__(self, max_connections=10):\n        self.max = max_connections\n        self.active = 0\n\n    def acquire(self):\n        if self.active >= self.max:\n            raise DatabaseError('Connection pool exhausted')\n        self.active += 1\n\n    def release(self):\n        self.active = max(0, self.active - 1)\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # ====== Week 4: Testing + polish ======
 
     # C14: Dev6 (40% AI) adds test utilities
     ts = next_ts()
-    rev, dev, files = commit_git("C14: add test fixtures and mock helpers", {
+    rev, dev, files, old_blame = commit_git("C14: add test fixtures and mock helpers", {
         "tests/test_auth.py": open(str(REPO / "tests/test_auth.py")).read() + "\n\n# Test fixtures\nimport pytest\n\n@pytest.fixture\ndef clean_users():\n    # Reset user database before each test\n    from db import execute\n    execute('DELETE FROM users')\n    yield\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C15: Dev0 (85% AI) adds rate limiting to handlers
     ts = next_ts()
-    rev, dev, files = commit_git("C15: add rate limiting to auth handlers", {
+    rev, dev, files, old_blame = commit_git("C15: add rate limiting to auth handlers", {
         "handlers.py": open(str(REPO / "handlers.py")).read().replace(
             "def handle_login(email: str, password: str):",
             "def _check_rate_limit(email: str, max_attempts: int = 5) -> bool:\n    # Simple rate limiter\n    return True\n\ndef handle_login(email: str, password: str):"
         ),
         "utils.py": open(str(REPO / "utils.py")).read() + "\n\ndef rate_limit_key(identifier: str) -> str:\n    return f'rate_limit:{identifier}:{now()[:13]}'\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C16: Rename config.py → settings.py by dev7 (15% AI)
     git("mv", "config.py", "settings.py")
@@ -335,7 +384,7 @@ def build_demo_repo():
 
     # C17: Dev2 (75% AI) refactors handlers — multi-file
     ts = next_ts()
-    rev, dev, files = commit_git("C17: refactor handlers — extract route registry", {
+    rev, dev, files, old_blame = commit_git("C17: refactor handlers — extract route registry", {
         "handlers.py": open(str(REPO / "handlers.py")).read().replace(
             "def handle_register",
             "routes = {}\n\ndef route(path: str):\n    def decorator(fn):\n        routes[path] = fn\n        return fn\n    return decorator\n\ndef handle_register"
@@ -348,32 +397,32 @@ def build_demo_repo():
             "from handlers import routes"
         ),
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C18: Dev9 (5% AI) adds doc comments
     ts = next_ts()
     current_auth = open(str(REPO / "auth.py")).read()
-    rev, dev, files = commit_git("C18: add docstrings to auth module — AC: human edit on AI code", {
+    rev, dev, files, old_blame = commit_git("C18: add docstrings to auth module — AC: human edit on AI code", {
         "auth.py": '"""Authentication and authorization module.\n\nProvides user registration, login, password reset,\nand session management backed by database storage.\n"""\n' + current_auth,
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C19: Dev8 (10% AI) deletes unused test fixture
     ts = next_ts()
-    rev, dev, files = commit_git("C19: remove test fixture placeholder — AC: file delete", {
+    rev, dev, files, old_blame = commit_git("C19: remove test fixture placeholder — AC: file delete", {
         "tests/test_auth.py": open(str(REPO / "tests/test_auth.py")).read().replace(
             "# Test fixtures\nimport pytest\n\n@pytest.fixture\ndef clean_users():\n    # Reset user database before each test\n    from db import execute\n    execute('DELETE FROM users')\n    yield\n",
             ""
         ),
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     # C20: Dev4 (50% AI) final polish
     ts = next_ts()
-    rev, dev, files = commit_git("C20: final polish — update imports and error messages", {
+    rev, dev, files, old_blame = commit_git("C20: final polish — update imports and error messages", {
         "settings.py": "import os\n\nDEBUG = os.getenv('DEBUG', 'false').lower() == 'true'\nDATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///:memory:')\nSECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-change-me')\nAPI_VERSION = 'v1'\nMAX_POSTS_PER_PAGE = int(os.getenv('MAX_POSTS_PER_PAGE', '20'))\nSESSION_TIMEOUT = int(os.getenv('SESSION_TIMEOUT', '3600'))\nAPP_NAME = 'MyBackend'\nVERSION = '0.1.0'\n",
     }, ts)
-    build_gendesc(rev, ts, files, dev)
+    build_gendesc(rev, ts, files, dev, old_blame)
 
     print(f"Git repo: {REPO} ({commit_seq} commits)")
 
