@@ -6,14 +6,14 @@ from datetime import datetime, timedelta
 random.seed(42)
 
 BASE = Path(os.environ.get("WORK_DIR", "."))
-REPO = BASE / "repo"
-GCD_V4 = BASE / "gcd-v26.04"
-GCD_V3 = BASE / "gcd-v26.03"
-PATCHES = BASE / "patches"
-SVN_REPO = BASE / "svn_repo"
-SVN_CO = BASE / "svn_checkout"
-SVN_GCD = BASE / "gcd-svn"
-SVN_PATCHES = BASE / "svn-patches"
+REPO = BASE / "git" / "repo"
+GCD_V4 = BASE / "git" / "gcd-v26.04"
+GCD_V3 = BASE / "git" / "gcd-v26.03"
+PATCHES = BASE / "git" / "patches"
+SVN_REPO = BASE / "svn" / "repo"
+SVN_CO = BASE / "svn" / "checkout"
+SVN_GCD = BASE / "svn" / "gcd"
+SVN_PATCHES = BASE / "svn" / "patches"
 
 REPO_URL = f"file://{REPO.resolve()}"
 
