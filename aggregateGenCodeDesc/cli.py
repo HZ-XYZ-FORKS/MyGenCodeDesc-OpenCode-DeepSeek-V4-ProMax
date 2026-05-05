@@ -16,7 +16,7 @@ from aggregateGenCodeDesc.output import (
 from aggregateGenCodeDesc.metrics import AllMetrics, MetricResult, compute_all_metrics
 from aggregateGenCodeDesc.alg_a import compute_alg_a_metrics, build_line_to_genratio_map
 from aggregateGenCodeDesc.alg_c import compute_alg_c_metrics, stream_accumulate_surviving_set
-from aggregateGenCodeDesc.blame_runner import run_git_blame_on_files, GitBlameError
+from aggregateGenCodeDesc.blame_runner import run_git_blame_on_files, run_svn_blame, GitBlameError, SvnBlameError
 from aggregateGenCodeDesc.policies import check_clock_skew, check_duplicate_revisions
 from aggregateGenCodeDesc.models import GenCodeDescV2603, GenCodeDescV2604, ValidationError
 
@@ -235,18 +235,29 @@ def main(argv: Optional[list] = None) -> int:
                 repo_path = args.repoUrl
 
             in_scope_files = _collect_in_scope_files(records, args.scope)
+            vcs_type = records[0].REPOSITORY.vcsType if records else "git"
 
             rename_detection = args.renameDetection
             ignore_whitespace = args.blameWhitespace == "ignore"
 
             try:
-                blame_lines = run_git_blame_on_files(
-                    repo_path,
-                    in_scope_files,
-                    ignore_whitespace=ignore_whitespace,
-                    rename_detection=rename_detection,
-                )
-            except (GitBlameError, FileNotFoundError) as e:
+                if vcs_type == "svn" and args.repoUrl:
+                    blame_lines = []
+                    repo_url = args.repoUrl
+                    for fp in in_scope_files:
+                        try:
+                            lines = run_svn_blame(repo_url, fp)
+                            blame_lines.extend(lines)
+                        except SvnBlameError:
+                            pass
+                else:
+                    blame_lines = run_git_blame_on_files(
+                        repo_path,
+                        in_scope_files,
+                        ignore_whitespace=ignore_whitespace,
+                        rename_detection=rename_detection,
+                    )
+            except (GitBlameError, SvnBlameError, FileNotFoundError) as e:
                 logger.error(str(e))
                 return EXIT_RUNTIME_ERROR
             finally:
@@ -273,15 +284,19 @@ def main(argv: Optional[list] = None) -> int:
         elif alg == "B":
             v2603_records = [r for r in records if isinstance(r, GenCodeDescV2603)]
             from aggregateGenCodeDesc.alg_b import compute_alg_b_metrics
-            from aggregateGenCodeDesc.vcs_ordering import get_git_commit_order, load_ordered_patches
+            from aggregateGenCodeDesc.vcs_ordering import get_git_commit_order, get_svn_commit_order, load_ordered_patches
 
             repo_path = args.repoPath or args.repoUrl
+            vcs_type = records[0].REPOSITORY.vcsType if records else "git"
             if not args.commitPatchDir:
                 logger.error("--commitPatchDir is required for Algorithm B")
                 return EXIT_VALIDATION_ERROR
 
             try:
-                ordered_commits = get_git_commit_order(repo_path, args.repoBranch, args.startTime, args.endTime)
+                if vcs_type == "svn":
+                    ordered_commits = get_svn_commit_order(args.repoUrl, args.startTime, args.endTime)
+                else:
+                    ordered_commits = get_git_commit_order(repo_path, args.repoBranch, args.startTime, args.endTime)
                 patch_seq = load_ordered_patches(args.commitPatchDir, ordered_commits)
                 diff_seq = [(text, rev_id, "") for text, rev_id in patch_seq]
             except Exception as e:

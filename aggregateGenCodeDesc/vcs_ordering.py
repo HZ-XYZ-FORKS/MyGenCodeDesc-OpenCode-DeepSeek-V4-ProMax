@@ -14,7 +14,7 @@ def get_git_commit_order(
     end_time: Optional[str] = None,
 ) -> List[str]:
     cmd = [
-        "git", "log", "--topo-order", "--reverse",
+        "git", "log", "--topo-order", "--reverse", "--first-parent",
         "--pretty=format:%H",
     ]
     if start_time:
