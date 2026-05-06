@@ -17,6 +17,53 @@ Format follows the [create-user-story](/.github/skills/create-user-story/SKILL.m
 
 ---
 
+## US-000: Safe Agent Sandbox for All Forks
+
+AS A codebase maintainer or tool developer,
+I WANT every fork to use a reproducible, isolated container environment for all code agent work,
+SO THAT experiments, builds, and agent actions cannot pollute or damage the host system, and all contributors have a consistent, safe setup.
+
+### AC-000-1: [Typical] Fork initializes with Dev Container
+
+```gherkin
+Scenario: [Typical] Fork initializes with Dev Container
+  GIVEN a developer forks MyGenCodeDescBase
+  WHEN they open the fork in VS Code with Docker Desktop running
+  THEN VS Code offers to reopen in a Dev Container
+  AND the container builds successfully
+```
+
+### AC-000-2: [Typical] All agent/code work happens inside container
+
+```gherkin
+Scenario: [Typical] All agent/code work happens inside container
+  GIVEN the fork is open in the Dev Container
+  WHEN a code agent generates code, runs tests, or installs dependencies
+  THEN all actions are isolated to the container
+  AND the host system is not modified outside the workspace mount
+```
+
+### AC-000-3: [Safety] Non-root user and no host secrets
+
+```gherkin
+Scenario: [Safety] Container avoids privileged host access by default
+  GIVEN the container is running
+  THEN the default user is non-root
+  AND host secrets are not mounted by default
+  AND the Docker socket is not mounted by default
+```
+
+### AC-000-4: [Typical] Documentation for safe workflow
+
+```gherkin
+Scenario: [Typical] Contributor follows safe workflow docs
+  GIVEN a new contributor reads the repo docs
+  WHEN they follow the forking and Dev Container instructions
+  THEN they can reproduce the safe agent workflow without extra setup beyond Docker and VS Code Dev Containers
+```
+
+---
+
 ## US-001: Core Metric Calculation
 
 AS A codebase maintainer,
@@ -98,6 +145,18 @@ Scenario: [Typical] v26.03 DETAIL omits manual lines while SUMMARY counts them
   AND Weighted is 77.0%
   AND Fully AI is 50.0%
   AND Mostly AI is 80.0% when threshold is 60
+```
+
+### AC-001-8: [Typical] Aggregate set is window diff intersected with alive code
+
+```gherkin
+Scenario: [Typical] Metrics aggregate only the alive subset of the window diff
+  GIVEN a cumulative diff for the commit range fromCommit >= startTime through toCommit <= endTime contains added, modified, and deleted lines
+  AND the repository snapshot at endTime contains only the surviving current versions of those lines
+  WHEN aggregateGenCodeDesc computes the aggregate metrics
+  THEN the denominator is the count of lines in (startTime..endTime diff) intersected with (alive at endTime)
+  AND deleted or reverted lines in the diff do not contribute to the denominator
+  AND lines alive at endTime but last changed before startTime do not contribute to the denominator
 ```
 
 ---
@@ -591,9 +650,22 @@ Scenario: [Fault] Remote VCS is down when AlgA runs blame
   AND the tool suggests retrying or using AlgC (no VCS access needed)
 ```
 
+#### AC-009-4: [Typical] AlgA joins genCodeDesc by blame origin coordinates
+
+```gherkin
+Scenario: [Typical] AlgA uses origin coordinates for v26.03 lookup after rename and line-number shift
+  GIVEN commit C1 within [startTime, endTime] creates "src/a.py" line 2 with genRatio 100 in genCodeDescV26.03(C1)
+  AND commit C2 before endTime renames the file to "src/math_utils.py" and inserts a header so the same live text is now current line 4
+  WHEN aggregateGenCodeDesc runs AlgA at endTime
+  THEN blame resolves current "src/math_utils.py" line 4 to origin revision C1, origin file "src/a.py", and origin line 2
+  AND the genRatio lookup uses genCodeDescV26.03(C1) DETAIL for "src/a.py" line 2
+  AND the implementation does not look up "src/math_utils.py" line 4 in C1's genCodeDesc
+  AND the live line is counted with genRatio 100
+```
+
 ### AlgB — Diff Replay
 
-#### AC-009-4: [Typical] Sequential multi-file diff replay in topological order
+#### AC-009-5: [Typical] Sequential multi-file diff replay in topological order
 
 ```gherkin
 Scenario: [Typical] AlgB replays multi-file, multi-hunk diffs in correct commit order
@@ -607,7 +679,7 @@ Scenario: [Typical] AlgB replays multi-file, multi-hunk diffs in correct commit 
   AND the final line-to-origin mapping matches the live file state at endTime
 ```
 
-#### AC-009-5: [Edge] Line-position tracking through chained renames
+#### AC-009-6: [Edge] Line-position tracking through chained renames
 
 ```gherkin
 Scenario: [Edge] AlgB tracks lines across rename chain
@@ -619,7 +691,7 @@ Scenario: [Edge] AlgB tracks lines across rename chain
   AND the rename graph correctly maps v1.py → v2.py → v3.py
 ```
 
-#### AC-009-6: [Fault] One diff in the chain is missing
+#### AC-009-7: [Fault] One diff in the chain is missing
 
 ```gherkin
 Scenario: [Fault] AlgB cannot retrieve diff for commit C3
@@ -633,7 +705,7 @@ Scenario: [Fault] AlgB cannot retrieve diff for commit C3
 
 ### AlgC — Embedded Blame (v26.04)
 
-#### AC-009-7: [Typical] Add/delete operations build correct surviving set
+#### AC-009-8: [Typical] Add/delete operations build correct surviving set
 
 ```gherkin
 Scenario: [Typical] AlgC accumulates surviving lines from add/delete entries
@@ -646,7 +718,7 @@ Scenario: [Typical] AlgC accumulates surviving lines from add/delete entries
   AND each surviving line's genRatio matches its add entry's genCodeDesc
 ```
 
-#### AC-009-8: [Edge] Duplicate add entry for same file+line
+#### AC-009-9: [Edge] Duplicate add entry for same file+line
 
 ```gherkin
 Scenario: [Edge] AlgC encounters duplicate add for the same line position
@@ -658,7 +730,7 @@ Scenario: [Edge] AlgC encounters duplicate add for the same line position
   AND the inconsistency is logged
 ```
 
-#### AC-009-9: [Fault] SUMMARY lineCount mismatches actual DETAIL entries
+#### AC-009-10: [Fault] SUMMARY lineCount mismatches actual DETAIL entries
 
 ```gherkin
 Scenario: [Fault] AlgC detects mismatch between SUMMARY and DETAIL
@@ -771,7 +843,7 @@ Scenario: [Testability] Unit tests can set log level programmatically
 
 | US | Title | AC Count | Categories Covered |
 |----|-------|----------|--------------------|
-| US-001 | Core Metric Calculation | 7 | Typical, Edge |
+| US-001 | Core Metric Calculation | 8 | Typical, Edge |
 | US-002 | File-Level Conditions | 4 | Typical, Edge |
 | US-003 | Commit-Level Conditions | 6 | Typical, Edge |
 | US-004 | Line-Level Conditions | 6 | Typical, Edge |
@@ -779,11 +851,104 @@ Scenario: [Testability] Unit tests can set log level programmatically
 | US-006 | Destructive and Edge Conditions | 6 | Fault, Misuse, Typical |
 | US-007 | Git vs SVN Differences | 5 | Typical, Edge |
 | US-008 | Scale and Performance | 4 | Performance, Edge, Robust |
-| US-009 | Algorithm-Specific Behavior | 9 | Typical, Edge, Fault |
+| US-009 | Algorithm-Specific Behavior | 10 | Typical, Edge, Fault |
 | US-010 | Diagnostics and Logging | 7 | Typical, Edge, Observability, Testability |
 | US-011 | Deployment Topology (12 cells) | 5 | Typical, Edge |
 | US-012 | Output Validation | 5 | Typical, Edge |
-| **Total** | | **69 AC** | |
+| **Total** | | **71 AC** | |
+
+---
+
+## US-011: Deployment Topology — 12 VCS × Access × Algorithm Cells
+
+AS A codebase maintainer,
+I WANT `aggregateGenCodeDesc` to run correctly in every deployment scenario defined in the UserGuide,
+SO THAT the tool works across local/remote repos, Git/SVN VCS, and all three algorithms.
+
+### Context
+
+The [UserGuide](README_UserGuide.md) §4 defines 12 deployment cells on axes:
+**VCS** = `git` | `svn` · **Access** = `local` | `remote` · **Algorithm** = `A` | `B` | `C`.
+
+Each cell represents a distinct runtime topology. Cells 3, 6, 9, 12 (AlgC) are VCS-free and share the same code path.
+The remaining 8 cells require distinct VCS-specific integration.
+
+### Coverage Matrix
+
+| # | Cell | Status |
+|---|------|:---:|
+| 1 | git · local · A | ✅ |
+| 2 | git · local · B | ✅ |
+| 3 | git · local · C | ✅ |
+| 4 | git · remote · A | ✅ |
+| 5 | git · remote · B | ✅ |
+| 6 | git · remote · C | ✅ |
+| 7 | svn · local · A | ✅ |
+| 8 | svn · local · B | ✅ |
+| 9 | svn · local · C | ✅ |
+| 10 | svn · remote · A | ✅ |
+| 11 | svn · remote · B | ✅ |
+| 12 | svn · remote · C | ✅ |
+
+### AC-011-1: [Typical] git · remote · A — auto-clone remote then blame
+
+```gherkin
+Scenario: [Typical] Remote Git repo with AlgA
+  GIVEN a remote Git repository URL (https:// or git@)
+  AND --algorithm A --repoPath is not provided
+  WHEN aggregateGenCodeDesc runs
+  THEN the tool auto-clones the remote to a temp directory
+  AND runs git blame on the cloned working copy
+  AND computes metrics correctly
+```
+
+### AC-011-2: [Typical] git · remote · B — patches + VCS ordering, no live repo
+
+```gherkin
+Scenario: [Typical] Remote Git repo with AlgB and commitPatchDir
+  GIVEN --commitPatchDir with per-revision .patch files
+  AND --algorithm B
+  AND no live repository access (--repoPath not needed)
+  WHEN aggregateGenCodeDesc runs
+  THEN commits are ordered via git log --topo-order
+  AND patches are replayed in correct topological sequence
+  AND the final line-to-origin mapping matches the live state at endTime
+```
+
+### AC-011-3: [Typical] svn · local · B — SVN diff replay with ascending revision order
+
+```gherkin
+Scenario: [Typical] Local SVN repo with AlgB
+  GIVEN an SVN working copy at --repoPath
+  AND --commitPatchDir with per-revision .patch files named by SVN revision number
+  AND --algorithm B
+  WHEN aggregateGenCodeDesc runs
+  THEN patches are ordered by ascending SVN revision number
+  AND every patch is replayed to build the surviving-line set
+```
+
+### AC-011-4: [Edge] svn · remote · A — svn blame via remote URL
+
+```gherkin
+Scenario: [Edge] Remote SVN with AlgA
+  GIVEN an SVN repository URL (svn:// or https://)
+  AND --algorithm A
+  WHEN aggregateGenCodeDesc runs svn blame
+  THEN the tool runs svn blame against the remote URL
+  AND the fork documents known SVN merge blame imprecision
+```
+
+### AC-011-5: [Edge] svn · remote · B — offline SVN patches, no VCS access
+
+```gherkin
+Scenario: [Edge] Remote SVN with AlgB offline patches
+  GIVEN --commitPatchDir with pre-exported svn diff patches
+  AND --algorithm B
+  AND no SVN server access at runtime
+  WHEN aggregateGenCodeDesc runs
+  THEN patches are processed by ascending revision number
+  AND metrics are computed correctly
+```
 
 ---
 
@@ -860,7 +1025,7 @@ Scenario: [Edge] All files excluded by scope filter
 3. **RED** — write a failing test from the GIVEN/WHEN/THEN scenario.
 4. **GREEN** — implement minimal code to pass.
 5. **REFACTOR** — clean up.
-6. When all 69 ACs pass → your implementation is correct per the BASE specification.
+6. When all 71 ACs pass → your implementation is correct per the BASE specification.
 7. Run `UserTesting/setup_demo.sh && UserTesting/run_demo.sh` to validate the 12-cell deployment matrix.
 
 > **Not every AC applies to every fork.** Git-only conditions (rebase, amend, shallow clone)
@@ -880,7 +1045,7 @@ The ACs support both **Git and SVN as first-class VCS citizens**. Git-specific f
 | AC | Git | SVN | Notes |
 |----|-----|-----|-------|
 | **US-001 (Core Metric)** | | | |
-| AC-001-1 ~ AC-001-7 | ✅ | ✅ | VCS-agnostic — pure math on genRatio values and sparse DETAIL semantics |
+| AC-001-1 ~ AC-001-8 | ✅ | ✅ | VCS-agnostic — metric math, sparse DETAIL semantics, and `(window diff) ∩ (alive at endTime)` aggregation set |
 | **US-002 (File-Level)** | | | |
 | AC-002-1 ~ AC-002-2 (rename) | ✅ | ✅ | Git: heuristic `-M`. SVN: explicit `svn move` — more reliable |
 | AC-002-3 (delete) | ✅ | ✅ | Same behavior |
@@ -925,12 +1090,13 @@ The ACs support both **Git and SVN as first-class VCS citizens**. Git-specific f
 | **AC-009-1 (rename -M)** | ✅ | ❌ N/A | ❌ N/A |
 | **AC-009-2 (cross-file -C -C)** | ✅ | ❌ N/A | ❌ N/A |
 | **AC-009-3 (VCS unreachable)** | ✅ | ❌ N/A | ❌ N/A |
-| **AC-009-4 (topological multi-file replay)** | ❌ N/A | ✅ | ❌ N/A |
-| **AC-009-5 (chained renames)** | ❌ N/A | ✅ | ❌ N/A |
-| **AC-009-6 (missing diff)** | ❌ N/A | ✅ | ❌ N/A |
-| **AC-009-7 (surviving set)** | ❌ N/A | ❌ N/A | ✅ |
-| **AC-009-8 (duplicate add)** | ❌ N/A | ❌ N/A | ✅ |
-| **AC-009-9 (SUMMARY mismatch)** | ❌ N/A | ❌ N/A | ✅ |
+| **AC-009-4 (origin-coordinate lookup)** | ✅ | ❌ N/A | ❌ N/A |
+| **AC-009-5 (topological multi-file replay)** | ❌ N/A | ✅ | ❌ N/A |
+| **AC-009-6 (chained renames)** | ❌ N/A | ✅ | ❌ N/A |
+| **AC-009-7 (missing diff)** | ❌ N/A | ✅ | ❌ N/A |
+| **AC-009-8 (surviving set)** | ❌ N/A | ❌ N/A | ✅ |
+| **AC-009-9 (duplicate add)** | ❌ N/A | ❌ N/A | ✅ |
+| **AC-009-10 (SUMMARY mismatch)** | ❌ N/A | ❌ N/A | ✅ |
 
 > **For SVN forks:** ❌ N/A rows indicate features that do not exist in SVN (rebase, amend, shallow clone, clock skew). These should be skipped without error. ⚠️ rows document known VCS limitations (mergeinfo imprecision, no `-w` for whitespace). Both Git and SVN are first-class VCS citizens for this tool.
 >
