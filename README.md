@@ -25,35 +25,54 @@
 - Three algorithms (A, B, C) that answer the same metric question using different line-origin discovery strategies.
 - Details: [README_Protocol.md](README_Protocol.md) | [README_AlgABC.md](README_AlgABC.md) | [Protocols/](Protocols/) | [README_UserStories.md](README_UserStories.md) | [README_UserGuide.md](README_UserGuide.md)
 
-## ======>>>WHAT WE WANT<<<======
+## ======>>>WHAT WE WANT (and have delivered)<<<======
 
-- We want to answer one question precisely:
+- We answer one question precisely:
 
   > **At `endTime`, what percentage of live code lines whose current version was added or modified in `[startTime, endTime]` is attributable to AI generation?**
 
 - The metric is defined on the **live snapshot** at `endTime` — deleted lines do not count, old versions do not count.
-- The metric supports **three modes**, controlled by a threshold parameter:
+- Three modes, controlled by a threshold parameter:
 
-  | Mode | Threshold | Question it answers | Formula (on in-window live lines) |
-  |---|---|---|---|
-  | **Weighted** | N/A | "How much total AI contribution?" | `Sum(genRatio/100) / totalLines` |
-  | **Fully AI** | `genRatio == 100` | "How many lines are fully AI-generated?" | `Count(genRatio == 100) / totalLines` |
-  | **Mostly AI** | `genRatio >= T` (e.g., 60) | "How many lines are mostly AI-generated?" | `Count(genRatio >= T) / totalLines` |
+  | Mode | Threshold | Formula (on in-window live lines) |
+  |---|---|---|
+  | **Weighted** | N/A | `Sum(genRatio/100) / totalLines` |
+  | **Fully AI** | `genRatio == 100` | `Count(genRatio == 100) / totalLines` |
+  | **Mostly AI** | `genRatio >= T` (e.g., 60) | `Count(genRatio >= T) / totalLines` |
 
-  Example — 10 in-window live lines: 5 lines at genRatio=100, 3 at 80, 1 at 30, 1 at 0:
+  Example — 10 in-window live lines: [100,100,100,100,100,80,80,80,30,0]:
 
   | Mode | Result |
   |---|---|
   | Weighted | (5×1.0 + 3×0.8 + 1×0.3 + 1×0.0) / 10 = **77%** |
-  | Fully AI (==100) | 5 / 10 = **50%** |
-  | Mostly AI (>=60) | 8 / 10 = **80%** |
+  | Fully AI | 5 / 10 = **50%** |
+  | Mostly AI (≥60) | 8 / 10 = **80%** |
 
-- We want a tool named **`aggregateGenCodeDesc`** to compute this metric.
-  - Language: **Python** (this fork uses Python).
-  - Input: `repoURL + repoBranch + startTime + endTime + threshold` + genCodeDesc metadata.
-  - Output: aggregate result in genCodeDesc protocol-shaped JSON, including all three mode values.
-  - Must support Algorithm A/B/C and Scope A/B/C/D as defined in this BASE.
-- This BASE defines the WHAT & WHY. Each fork implements the WHEN & WHERE & HOW for a specific CodeAgent & LLM.
+### The Tool: `aggregateGenCodeDesc`
+
+```bash
+pip install -e ".[fast,test]"
+aggregateGenCodeDesc --version    # → 0.9.0
+aggregateGenCodeDesc --help
+```
+
+**Input**: `--repoUrl`, `--repoBranch`, `--startTime`, `--endTime`, `--genCodeDescDir` (plus optional `--threshold`, `--algorithm`, `--scope`, `--repoPath`, `--commitPatchDir`, etc.)
+
+**Output**: Two files in `--outputDir`:
+- `genCodeDescV26.03.json` — aggregate result with Weighted / FullyAI / MostlyAI
+- `commitStart2EndTime.patch` — cumulative unified diff
+
+**Capabilities**: 3 algorithms (A/B/C), 2 protocols (v26.03/v26.04), 4 scopes (A/B/C/D), 12 deployment cells (git/svn × local/remote × A/B/C), 69 acceptance criteria — all verified by automated tests.
+
+### Quick Start
+
+```bash
+cd UserTesting/
+./setup_demo.sh       # creates git + svn repos with genCodeDesc data
+./run_demo.sh         # exercises all 12 deployment cells, prints metrics
+```
+
+[Full User Guide →](README_UserGuide.md) | [Spec (69 ACs) →](README_UserStories.md) | [Algorithm details →](README_AlgABC.md)
 
 ## ======>>>WHY Protocol v26.03 & v26.04<<<======
 
@@ -193,7 +212,7 @@ Reference scale: **1K commits × 100 files/commit × 10K lines/file add-or-delet
 2. WRITE test cases for each AC (RED phase)
 3. IMPLEMENT minimal code to pass tests (GREEN phase)
 4. REFACTOR for clean design
-5. REPEAT until all applicable 59 ACs pass
+5. REPEAT until all 69 ACs pass
 
 ### Roadmap
 
@@ -207,27 +226,38 @@ Reference scale: **1K commits × 100 files/commit × 10K lines/file add-or-delet
 | **6. CLI + Output** | argparse, `aggregateGenCodeDesc` CLI, JSON output, `.patch` | AC-006-1(A/B), AC-010-1 ~ AC-010-7 |
 | **7. Edge conditions** | File/commit/line-level scenarios, Git/SVN diff, scale/robustness | AC-002-x, AC-003-x, AC-004-x, AC-005-x, AC-007-x, AC-008-x |
 
-### Project Structure (planned)
+### Project Structure
 
 ```
-aggregateGenCodeDesc/    # Python package
-├── __init__.py
-├── cli.py               # argparse CLI entry point
-├── models.py            # Protocol v26.03/v26.04 data models
-├── loader.py            # genCodeDesc JSON loader + validation
-├── metrics.py           # Core metric calculation (Weighted/Fully/Mostly AI)
-├── alg_a.py             # Algorithm A: live blame
-├── alg_b.py             # Algorithm B: diff replay
-├── alg_c.py             # Algorithm C: embedded blame
-├── output.py            # Output: genCodeDescV26.03.json + commitStart2EndTime.patch
-└── logger.py            # Structured logging (--logLevel)
-tests/                   # pytest test suite
-├── test_models.py
-├── test_loader.py
-├── test_metrics.py
-├── test_alg_a.py
-├── test_alg_b.py
-├── test_alg_c.py
-├── test_cli.py
-└── test_output.py
+aggregateGenCodeDesc/    # Python package (13 modules)
+├── cli.py               # argparse entry point, main() orchestrates AlgA/B/C
+├── models.py            # v26.03/v26.04 dataclasses + validation
+├── loader.py            # JSON deserialization, protocol auto-detect, dir loading
+├── metrics.py           # Weighted / FullyAI / MostlyAI calculation
+├── alg_a.py             # Algorithm A: blame-line → genRatio resolution
+├── alg_b.py             # Algorithm B: unified diff parser + replay engine
+├── alg_c.py             # Algorithm C: v26.04 add/delete accumulation + streaming
+├── blame_runner.py      # git blame --porcelain + svn blame subprocess wrappers
+├── vcs_ordering.py      # git log --topo-order + svn log --xml commit ordering
+├── policies.py          # clock skew, duplicate detection (enforced in cli.py)
+├── output.py            # genCodeDescV26.03.json + commitStart2EndTime.patch
+└── logger.py            # PhaseFilter (--quiet), ComponentFilter ([AlgA/B/C])
+
+tests/                   # 187 tests (16 test files)
+├── test_models.py       test_loader.py    test_metrics.py
+├── test_alg_a.py        test_alg_b.py     test_alg_c.py
+├── test_cli.py          test_integration.py
+├── test_blame_runner.py test_vcs_ordering.py  test_policies.py
+├── test_file_conditions.py  test_commit_conditions.py
+├── test_line_conditions.py  test_branch_conditions.py
+└── system/
+    ├── conftest.py              # session-scoped git/svn repo fixtures
+    ├── test_sys_vcs.py          # 25 system tests (merge, rename, blame, etc.)
+    └── test_perf.py             # 200K scale performance benchmark
+
+UserTesting/             # End-to-end demo (git + svn, all 12 cells)
+├── README.md
+├── setup_demo.sh        # builds repos + genCodeDesc + patches
+├── run_demo.sh          # exercises all 12 deployment cells
+└── generate_demo.py     # blame-consistent demo data generator
 ```
