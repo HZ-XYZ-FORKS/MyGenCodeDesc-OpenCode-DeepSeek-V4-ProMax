@@ -141,5 +141,74 @@ echo " 10 svn·remote·A     out/svn-10-A-remote"
 echo " 11 svn·remote·B     (same as #8, patches only)"
 echo " 12 svn·remote·C     (same as #3, VCS-free)"
 echo ""
+echo "=== AlgA vs AlgC Consistency Check ==="
+echo ""
+echo "AlgA (blame + v26.03 sparse data):"
+python3 -c "
+import json
+d=json.load(open('$WORK/out/git-01-A/genCodeDescV26.03.json'))
+m=d['AGGREGATE']['metrics']
+print(f'  weighted={m[\"weighted\"][\"value\"]:.1%}  fullyAI={m[\"fullyAI\"][\"value\"]:.1%}  mostlyAI={m[\"mostlyAI\"][\"value\"]:.1%}')
+d=json.load(open('$WORK/out/git-01-A/genCodeDescV26.03.json'))
+print(f'  totalLines={d[\"SUMMARY\"][\"totalCodeLines\"]}  fullGen={d[\"SUMMARY\"][\"fullGeneratedCodeLines\"]}  partialGen={d[\"SUMMARY\"][\"partialGeneratedCodeLines\"]}')
+"
+echo ""
+echo "AlgC (embedded blame + v26.04 streaming):"
+python3 -c "
+import json
+d=json.load(open('$WORK/out/git-03-C/genCodeDescV26.03.json'))
+m=d['AGGREGATE']['metrics']
+print(f'  weighted={m[\"weighted\"][\"value\"]:.1%}  fullyAI={m[\"fullyAI\"][\"value\"]:.1%}  mostlyAI={m[\"mostlyAI\"][\"value\"]:.1%}')
+d=json.load(open('$WORK/out/git-03-C/genCodeDescV26.03.json'))
+print(f'  totalLines={d[\"SUMMARY\"][\"totalCodeLines\"]}  fullGen={d[\"SUMMARY\"][\"fullGeneratedCodeLines\"]}  partialGen={d[\"SUMMARY\"][\"partialGeneratedCodeLines\"]}')
+"
+echo ""
+echo "Note: Different results expected — AlgA uses v26.03 sparse data"
+echo "(only add entries, no deletes). AlgC uses v26.04 incremental data."
+echo "Both are correct per the protocol."
+echo ""
+echo "=== Production Diagnostics ==="
+echo ""
+
+# Shallow clone detection
+echo "--- shallow clone detection ---"
+SHALLOW_DIR="$WORK/shallow_clone"
+rm -rf "$SHALLOW_DIR"
+git clone --depth 3 "file://$REPO" "$SHALLOW_DIR" --quiet 2>/dev/null
+SHALLOW_GCD="$WORK/git/gcd-shallow"
+mkdir -p "$SHALLOW_GCD"
+# Convert v26.03 to shallow repo URL
+python3 -c "
+import json, os
+for fn in os.listdir('$WORK/git/gcd-v26.03'):
+    if not fn.endswith('.json'): continue
+    d = json.load(open(os.path.join('$WORK/git/gcd-v26.03', fn)))
+    d['REPOSITORY']['repoURL'] = 'file://$SHALLOW_DIR'
+    json.dump(d, open(os.path.join('$SHALLOW_GCD', fn), 'w'), indent=2)
+"
+$TOOL --repoUrl "file://$SHALLOW_DIR" --repoBranch main \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-04-15T00:00:00Z \
+    --threshold 60 --algorithm A --scope A \
+    --genCodeDescDir "$SHALLOW_GCD" --repoPath "$SHALLOW_DIR" \
+    --outputDir "$WORK/out/shallow-test" 2>&1 | grep -E "shallow|Shallow|warn|WARN"
+echo ""
+
+# Missing revisionId diagnostic
+echo "--- missing genCodeDesc diagnostic ---"
+TMP_GCD="$WORK/git/gcd-missing"
+mkdir -p "$TMP_GCD"
+for f in "$WORK/git/gcd-v26.03"/*.json; do
+    cp "$f" "$TMP_GCD/"
+done
+# Remove one file to simulate missing genCodeDesc
+first=$(ls "$TMP_GCD" | head -1)
+rm "$TMP_GCD/$first" 2>/dev/null
+$TOOL --repoUrl "file://$REPO" --repoBranch main \
+    --startTime 2026-01-01T00:00:00Z --endTime 2026-02-01T00:00:00Z \
+    --threshold 60 --algorithm A --scope A \
+    --genCodeDescDir "$TMP_GCD" --repoPath "$REPO" \
+    --outputDir "$WORK/out/missing-test" 2>&1 | grep -E "Missing|missing"
+echo ""
+
 echo " Output: $WORK/out/"
 echo "============================================"
