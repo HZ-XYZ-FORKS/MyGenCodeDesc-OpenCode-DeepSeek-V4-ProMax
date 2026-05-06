@@ -90,17 +90,17 @@ def _make_real_patch(repo_path, repo_branch, start_time, end_time, algorithm, sc
     )
     if algorithm == "A" and repo_path:
         try:
-            rev_before = subprocess.run(
-                ["git", "log", "--before", start_time, "--format=%H", "-1", repo_branch],
+            from_commit = subprocess.run(
+                ["git", "log", "--after", start_time, "--format=%H", "--reverse", "-1", repo_branch],
                 cwd=repo_path, capture_output=True, text=True, timeout=60,
             ).stdout.strip()
-            rev_at_end = subprocess.run(
+            to_commit = subprocess.run(
                 ["git", "log", "--before", end_time, "--format=%H", "-1", repo_branch],
                 cwd=repo_path, capture_output=True, text=True, timeout=60,
             ).stdout.strip()
-            if rev_before and rev_at_end:
+            if from_commit and to_commit:
                 diff = subprocess.run(
-                    ["git", "diff", f"{rev_before}..{rev_at_end}"],
+                    ["git", "diff", f"{from_commit}^..{to_commit}"],
                     cwd=repo_path, capture_output=True, text=True, timeout=300,
                 ).stdout
                 return header + diff
