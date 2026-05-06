@@ -42,6 +42,7 @@ def parse_blame_porcelain(output: str) -> List[BlameLine]:
                     line_number=current_final_line,
                     origin_timestamp=current_timestamp,
                     origin_line=current_orig_line,
+                    origin_file_path=current_filename,
                 ))
                 current_final_line += 1
                 current_orig_line += 1
@@ -155,13 +156,15 @@ def parse_svn_blame(output: str) -> List[BlameLine]:
         try:
             rev_part = stripped[:8].strip()
             revision = str(int(rev_part))
+            ln = len(result) + 1
             result.append(BlameLine(
                 blame=f"{revision}",
                 origin_revision=revision,
                 file_path="",
-                line_number=len(result) + 1,
+                line_number=ln,
                 origin_timestamp="",
-                origin_line=len(result) + 1,
+                origin_line=ln,
+                origin_file_path="",
             ))
         except (ValueError, IndexError):
             continue

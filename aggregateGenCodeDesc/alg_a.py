@@ -14,12 +14,13 @@ from aggregateGenCodeDesc.metrics import AllMetrics, compute_all_metrics
 class BlameLine:
     blame: str
     origin_revision: str
-    file_path: str
-    line_number: int
+    file_path: str           # current file path (after any renames)
+    line_number: int          # current line number
     origin_timestamp: str
     gen_ratio: int = 0
     gen_method: str = "Manual"
-    origin_line: int = 0
+    origin_line: int = 0     # line number in origin commit
+    origin_file_path: str = ""  # file path in origin commit (before rename)
 
 
 @dataclass
@@ -72,7 +73,8 @@ def resolve_gen_ratios_from_v2603(
 ) -> List[int]:
     gen_ratios = []
     for line in in_window_lines:
-        key = (line.origin_revision, line.file_path, line.origin_line or line.line_number)
+        lookup_file = line.origin_file_path or line.file_path
+        key = (line.origin_revision, lookup_file, line.origin_line or line.line_number)
         gr = genratio_map.get(key, 0)
         line.gen_ratio = gr
         if gr == 0:

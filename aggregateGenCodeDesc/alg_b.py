@@ -78,6 +78,7 @@ class FileLineTracker:
                     origin_timestamp=entry.origin_timestamp,
                     gen_ratio=entry.gen_ratio,
                     origin_line=line_num,
+                    origin_file_path=file_path,
                 ))
         return result
 
