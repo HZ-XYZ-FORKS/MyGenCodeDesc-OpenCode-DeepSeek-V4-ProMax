@@ -5,13 +5,20 @@ Defines **WHEN** you run it, **WHERE** inputs/outputs live, and **HOW** to invok
 
 Each fork of this BASE implements this contract in its chosen language (Python / C++ / Rust) and CLI convention.
 
-- Related docs: [README.md](README.md) · [README_UserStories.md](README_UserStories.md) · [README_AlgABC.md](README_AlgABC.md) · [README_Protocol.md](README_Protocol.md)
+- Related docs: [README.md](README.md) · [README_UserStories.md](README_UserStories.md) · [README_AlgABC.md](README_AlgABC.md) · [README_Protocol.md](README_Protocol.md) · [README_TestGuide.md](README_TestGuide.md)
 
 ---
 
 ## 1. Overview
 
-`aggregateGenCodeDesc` analyzes code surviving in the repository snapshot at `endTime` and calculates AI involvement using three distinct metrics:
+`aggregateGenCodeDesc` starts from code lines added or modified during `startTime..endTime`, keeps only those whose current version is still alive at `endTime`, and then calculates AI involvement using three distinct metrics:
+
+The aggregate set is the intersection of:
+
+1. code lines added or modified by the cumulative `startTime..endTime` diff, and
+2. code lines still alive in the repository snapshot at `endTime`.
+
+`commitStart2EndTime.patch` audits the window diff; the JSON metrics aggregate only the alive subset of that diff. Deleted, reverted, or pre-window-origin lines must not enter the denominator.
 
 1. **Weighted mode**: `Σ(genRatio / 100) / totalLines`
 2. **Fully AI mode**: `count(genRatio == 100) / totalLines`
@@ -124,7 +131,7 @@ Mapping from metric to protocol fields:
 | `codeAgent` | `"myCodeAgentName"`. |
 | `REPOSITORY.repoURL` / `repoBranch` | Echoed from input arguments. |
 | `REPOSITORY.revisionId` | `"aggregate:<startTime>..<endTime>"` — a synthetic id identifying the window. |
-| `SUMMARY.totalCodeLines` | Denominator — count of all in-window live code lines, including manual/unattributed lines that may be omitted from `DETAIL`. |
+| `SUMMARY.totalCodeLines` | Denominator — count of lines in `(startTime..endTime diff) ∩ (alive at endTime)`, including manual/unattributed lines that may be omitted from `DETAIL`. |
 | `SUMMARY.fullGeneratedCodeLines` | Count of lines with `genRatio == 100` (numerator of *Fully AI*). |
 | `SUMMARY.partialGeneratedCodeLines` | Count of lines with `0 < genRatio < 100`. |
 | `SUMMARY.totalDocLines` / `fullGeneratedDocLines` / `partialGeneratedDocLines` | Same, restricted to doc files (Scope C/D). For code and doc counts, `total >= fullGenerated + partialGenerated`; the difference is manual/unattributed lines with effective `genRatio=0`. |
@@ -207,10 +214,15 @@ Example (10 in-window live code lines, generated `genRatio = [100,100,100,100,10
 
 ### 3.2 `commitStart2EndTime.patch`
 
-A **single cumulative unified diff** representing the net change from the window's first parent to the window's end revision on `repoBranch`. Equivalent to:
+A **single cumulative unified diff** for the selected revision range on `repoBranch`:
+
+- `fromCommit` = the first commit/revision on `repoBranch` whose timestamp is `>= startTime`.
+- `toCommit` = the last commit/revision on `repoBranch` whose timestamp is `<= endTime`.
+
+The patch represents the net changes introduced by `fromCommit..toCommit`. For Git, the diff command uses the parent of `fromCommit` as the left endpoint so that `fromCommit` itself is included:
 
 ```text
-git diff <revJustBeforeStartTime>..<revAtEndTime> -- <scope paths>
+git diff <parentOfFromCommit>..<toCommit> -- <scope paths>
 ```
 
 - **Format**: standard unified diff (`diff --git ...` / `---` / `+++` / `@@` hunks). Applyable with `git apply` or `patch -p1`.
