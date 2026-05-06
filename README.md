@@ -25,54 +25,37 @@
 - Three algorithms (A, B, C) that answer the same metric question using different line-origin discovery strategies.
 - Details: [README_Protocol.md](README_Protocol.md) | [README_AlgABC.md](README_AlgABC.md) | [Protocols/](Protocols/) | [README_UserStories.md](README_UserStories.md) | [README_UserGuide.md](README_UserGuide.md)
 
-## ======>>>WHAT WE WANT (and have delivered)<<<======
+## ======>>>WHAT WE WANT<<<======
 
-- We answer one question precisely:
+- We want to answer one question precisely:
 
   > **At `endTime`, what percentage of live code lines whose current version was added or modified in `[startTime, endTime]` is attributable to AI generation?**
 
+**
+
 - The metric is defined on the **live snapshot** at `endTime` — deleted lines do not count, old versions do not count.
-- Three modes, controlled by a threshold parameter:
+- The metric supports **three modes**, controlled by a threshold parameter:
 
-  | Mode | Threshold | Formula (on in-window live lines) |
-  |---|---|---|
-  | **Weighted** | N/A | `Sum(genRatio/100) / totalLines` |
-  | **Fully AI** | `genRatio == 100` | `Count(genRatio == 100) / totalLines` |
-  | **Mostly AI** | `genRatio >= T` (e.g., 60) | `Count(genRatio >= T) / totalLines` |
+  | Mode | Threshold | Question it answers | Formula (on in-window live lines) |
+  |---|---|---|---|
+  | **Weighted** | N/A | "How much total AI contribution?" | `Sum(genRatio/100) / totalLines` |
+  | **Fully AI** | `genRatio == 100` | "How many lines are fully AI-generated?" | `Count(genRatio == 100) / totalLines` |
+  | **Mostly AI** | `genRatio >= T` (e.g., 60) | "How many lines are mostly AI-generated?" | `Count(genRatio >= T) / totalLines` |
 
-  Example — 10 in-window live lines: [100,100,100,100,100,80,80,80,30,0]:
+  Example — 10 in-window live lines: 5 lines at genRatio=100, 3 at 80, 1 at 30, 1 at 0:
 
   | Mode | Result |
   |---|---|
   | Weighted | (5×1.0 + 3×0.8 + 1×0.3 + 1×0.0) / 10 = **77%** |
-  | Fully AI | 5 / 10 = **50%** |
-  | Mostly AI (≥60) | 8 / 10 = **80%** |
+  | Fully AI (==100) | 5 / 10 = **50%** |
+  | Mostly AI (>=60) | 8 / 10 = **80%** |
 
-### The Tool: `aggregateGenCodeDesc`
-
-```bash
-pip install -e ".[fast,test]"
-aggregateGenCodeDesc --version    # → 0.9.0
-aggregateGenCodeDesc --help
-```
-
-**Input**: `--repoUrl`, `--repoBranch`, `--startTime`, `--endTime`, `--genCodeDescDir` (plus optional `--threshold`, `--algorithm`, `--scope`, `--repoPath`, `--commitPatchDir`, etc.)
-
-**Output**: Two files in `--outputDir`:
-- `genCodeDescV26.03.json` — aggregate result with Weighted / FullyAI / MostlyAI
-- `commitStart2EndTime.patch` — cumulative unified diff
-
-**Capabilities**: 3 algorithms (A/B/C), 2 protocols (v26.03/v26.04), 4 scopes (A/B/C/D), 12 deployment cells (git/svn × local/remote × A/B/C), 69 acceptance criteria — all verified by automated tests.
-
-### Quick Start
-
-```bash
-cd UserTesting/
-./setup_demo.sh       # creates git + svn repos with genCodeDesc data
-./run_demo.sh         # exercises all 12 deployment cells, prints metrics
-```
-
-[Full User Guide →](README_UserGuide.md) | [Spec (69 ACs) →](README_UserStories.md) | [Algorithm details →](README_AlgABC.md)
+- We want a tool named **`aggregateGenCodeDesc`** to compute this metric.
+  - Language: **Python** (this fork uses Python).
+  - Input: `repoURL + repoBranch + startTime + endTime + threshold` + genCodeDesc metadata.
+  - Output: aggregate result in genCodeDesc protocol-shaped JSON, including all three mode values.
+  - Must support Algorithm A/B/C and Scope A/B/C/D as defined in this BASE.
+- This BASE defines the WHAT & WHY. Each fork implements the WHEN & WHERE & HOW for a specific CodeAgent & LLM.
 
 ## ======>>>WHY Protocol v26.03 & v26.04<<<======
 
