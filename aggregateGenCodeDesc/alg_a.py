@@ -19,6 +19,7 @@ class BlameLine:
     origin_timestamp: str
     gen_ratio: int = 0
     gen_method: str = "Manual"
+    origin_line: int = 0
 
 
 @dataclass
@@ -71,7 +72,7 @@ def resolve_gen_ratios_from_v2603(
 ) -> List[int]:
     gen_ratios = []
     for line in in_window_lines:
-        key = (line.origin_revision, line.file_path, line.line_number)
+        key = (line.origin_revision, line.file_path, line.origin_line or line.line_number)
         gr = genratio_map.get(key, 0)
         line.gen_ratio = gr
         if gr == 0:
