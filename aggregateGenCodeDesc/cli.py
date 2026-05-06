@@ -234,6 +234,19 @@ def main(argv: Optional[list] = None) -> int:
             elif not repo_path:
                 repo_path = args.repoUrl
 
+            shallow = False
+            try:
+                r = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                                   cwd=repo_path, capture_output=True, text=True, timeout=10)
+                if r.stdout.strip() == "true":
+                    shallow = True
+                    logger.warning("Shallow clone detected: blame results may be degraded")
+                    if args.onMissing == "abort":
+                        logger.error("Aborting: --onMissing=abort with shallow clone")
+                        return EXIT_VALIDATION_ERROR
+            except Exception:
+                pass
+
             in_scope_files = _collect_in_scope_files(records, args.scope)
             vcs_type = records[0].REPOSITORY.vcsType if records else "git"
 
@@ -280,6 +293,15 @@ def main(argv: Optional[list] = None) -> int:
                 metrics = result.metrics
                 warnings = []
                 gen_ratios = [l.gen_ratio for l in result.in_window_lines]
+
+                known_revisions = {key[0] for key in genratio_map}
+                blame_revisions = {l.origin_revision for l in result.in_window_lines}
+                missing_revs = blame_revisions - known_revisions
+                if missing_revs:
+                    rev_list = ", ".join(sorted(missing_revs)[:5])
+                    if len(missing_revs) > 5:
+                        rev_list += f", ... ({len(missing_revs)} total)"
+                    warnings.append(f"Missing genCodeDesc for revisions: {rev_list}")
 
         elif alg == "B":
             v2603_records = [r for r in records if isinstance(r, GenCodeDescV2603)]
